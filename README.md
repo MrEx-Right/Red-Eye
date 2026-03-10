@@ -51,17 +51,12 @@ The ultimate async recon framework for red teamers and bug bounty hunters. Power
 
 ```bash
 # Clone the repository
-git clone [https://github.com/YourUsername/RedEye.git](https://github.com/YourUsername/RedEye.git)
+git clone https://github.com/MrEx-Right/Red-Eye.git
 cd RedEye
 
 # Install dependencies
 pip install -r requirements.txt
-```
-
-### GitHub API Token (Recommended)
-To prevent `401 Unauthorized` or rate-limiting during GitHub Dorking, set your Personal Access Token:
-* Linux/macOS: `export GITHUB_TOKEN="your_token_here"`
-* Windows: `set GITHUB_TOKEN="your_token_here"`
+````
 
 ## 🎯 Usage
 
