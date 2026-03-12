@@ -37,10 +37,14 @@ class DnsScanner(BaseScanner):
                     if record_type == "A":
                         a_recs.append(parts[2])
                     elif record_type == "MX":
-                        mx_recs.append(f"{parts[2]} (Priority: {parts[3] if len(parts)>3 else 'N/A'})")
+                        # FIX: parts[2] is priority, parts[3] is the actual exchange server
+                        priority = parts[2]
+                        exchange = parts[3] if len(parts) > 3 else "Unknown"
+                        mx_recs.append(f"{exchange} (Priority: {priority})")
                     elif record_type == "TXT":
-                        # TXT records can have spaces, so we join the rest
-                        txt_recs.append(" ".join(parts[2:]))
+                        # FIX: TXT records can have spaces, so we join the rest and strip quotes
+                        clean_txt = " ".join(parts[2:]).strip("\"'")
+                        txt_recs.append(clean_txt)
 
         # Vulnerability Check: Is there an SPF record protecting the domain?
         # If not, attackers can send forged emails from admin@target.com
