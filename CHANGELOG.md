@@ -3,13 +3,13 @@
 All notable changes to the **Red Eye** project will be documented in this file.
 
 ## [v1.0.1] - 2026-03-13
-### 🎯 Tactical Optimization & Precision Sniper Update
+### ⚡ Precision Intelligence & Tactical Evasion Update
 
-- **Signature-Based Takeover Sniper (Overhauled):** The `takeover_scanner.py` module has been completely rewritten. Replaced superficial checks with hardcoded error signature matching for over 10 major cloud providers (AWS S3, GitHub Pages, Heroku, Azure, etc.) to actively detect Dangling DNS and Subdomain Takeover vulnerabilities.
-- **GitHub Intelligence Engine (Rate-Limit Evasion):** Overhauled `github_dorker.py` to gracefully handle unauthenticated API limits. The engine now reads `Retry-After` and `X-RateLimit-Reset` headers for dynamic shadow-sleeping. Maximized loot extraction by implementing `per_page=100` pagination.
-- **Dynamic Directory Fuzzer (Safe Payload & HTTPS):** Upgraded `dir_scanner.py` to enforce `https://` by default for modern targets. Implemented strict URL encoding (`urllib.parse.quote`) to safely process special characters in wordlists. Added a dynamic concurrency gearbox (Semaphore 150 for minigun, 20 for stealth/delay) to prevent accidental target DOS.
-- **DNS Recon Logic (Accuracy Patch):** Fixed a critical index shifting bug in `dns_scanner.py` where MX record priorities and exchange servers were parsed incorrectly. Additionally, implemented a cleaner string sanitization to strip residual double quotes from TXT/SPF records for pristine reporting.
-
+- **Subdomain Takeover Sniper (Overhaul):** Deprecated superficial HTTP checks for the takeover module. Integrated direct signature-based error matching for **10+ major cloud providers** (AWS S3, GitHub Pages, Heroku, Azure, etc.) to definitively identify unclaimed CNAME records and potential takeover vectors.
+- **GitHub Intelligence Engine (Rate-Limit Evasion):** Added a dynamic evasion mechanism to bypass strict API rate limits. The engine now reads `Retry-After` and `X-RateLimit-Reset` headers to tactically enter sleep mode instead of crashing. Maximized data extraction by implementing `per_page=100` pagination.
+- **Dynamic Directory Fuzzer (Protocol Upgrade):** Transitioned the fuzzer to enforce **HTTPS** by default for modern target compatibility. Mandated URL encoding (`urllib.parse.quote`) to prevent custom wordlist payload crashes. Introduced a Dynamic Concurrency Engine (150/20 threads) that automatically shifts gears between speed and stealth modes to prevent target DoS.
+- **DNS Architecture Analysis (Precision Patch):** Fixed a critical API index-shifting bug that misparsed MX record priorities and exchange servers. Purged residual quotation marks from TXT/SPF records to ensure pristine, enterprise-grade reporting output.
+  
 ## [1.0.0] - Initial Release (Ghost Protocol Edition)
 
 ### 🚀 Added (The Arsenal)
