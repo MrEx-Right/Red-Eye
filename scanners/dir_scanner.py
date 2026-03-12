@@ -2,6 +2,7 @@ import asyncio
 from typing import List
 import random
 import os
+import urllib.parse
 from core.base import BaseScanner
 from models.report import DirResult
 from utils.client import AsyncClient
@@ -35,7 +36,6 @@ class DirScanner(BaseScanner):
         # If no custom list was provided, or the file was missing/empty, use the default list
         if not wordlist_data:
             w_name = "built-in default list"
-            # Kanka virgülleri ekledim, yoksa Python stringleri birleştirip patlatırdı
             wordlist_data = [
                 "admin", "login", "api", ".git", ".env",
                 "backup", "config", "db", "test", "old", "dev", "staging",
@@ -49,11 +49,16 @@ class DirScanner(BaseScanner):
         found_dirs: List[str] = []
         client = AsyncClient(timeout=5, proxy=self.proxy)
         
-        # Minigun mode enabled! Semaphore prevents DOSing the target but keeps it incredibly fast.
-        semaphore = asyncio.Semaphore(150) 
+        # FIX 3: Dynamic Concurrency Limit. Gentle if stealth/delay is on, minigun otherwise.
+        concurrency_limit = 20 if (self.stealth or self.delay > 0) else 150
+        semaphore = asyncio.Semaphore(concurrency_limit) 
         
         async def check_dir(word: str):
-            url = f"http://{self.target}/{word}"
+            # FIX 2: URL encode the payload to handle spaces and special characters safely
+            safe_word = urllib.parse.quote(word)
+            
+            # FIX 1: Enforce HTTPS scheme for modern web targets
+            url = f"https://{self.target}/{safe_word}"
             
             async with semaphore:
                 if self.delay > 0:
@@ -64,6 +69,7 @@ class DirScanner(BaseScanner):
                 status, _, _ = await client.fetch(url, return_type="text")
                 
                 if status in [200, 301, 302, 403]:
+                    # Keeping the original word in the report for readability
                     found_dirs.append(f"/{word} (Status: {status})")
 
         tasks = [check_dir(word) for word in wordlist_data]
