@@ -16,7 +16,7 @@ class PortScanner(BaseScanner):
         if self.deep_scan:
             print(f"[*] PortScanner: [DEEP SCAN] Initiating full 65535 port scan for {self.target}...")
             ports_to_scan = range(1, 65536)
-            concurrent_limit = 1000
+            concurrent_limit = 500
             timeout_val = 2.0  # 2s for firewalled/filtered ports
         else:
             # Expanded port list: web, DB, API, admin panels, dev servers
