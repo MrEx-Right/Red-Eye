@@ -2,6 +2,14 @@
 
 All notable changes to the **Red Eye** project will be documented in this file.
 
+## [v1.0.2] - 2026-03-18
+### ⚙️ Core Stability & Intelligence Tuning
+
+- **Targeted Email Harvester (Smart Filter):** Overhauled the junk filtering logic. Introduced a Target Override feature that natively protects target-specific emails from being discarded. Whitelisted legitimate third-party developer services (e.g., Sentry, Wixpress) to prevent false negatives during deep intel gathering.
+- **Dynamic Directory Fuzzer (Pathing Fix):** Hardened execution context reliability. Replaced fragile relative pathing with absolute path resolution. The fuzzer now flawlessly locates and loads custom wordlists regardless of the terminal's working directory or cronjob environment.
+- **Tech Stack Analyzer (Thread Safety):** Resolved a critical asynchronous race condition. Eliminated global socket timeout modifications that previously caused thread collisions across the entire scanner suite. The module now relies exclusively on safe, isolated `asyncio.wait_for` mechanics for flawless multi-threading.
+- **High-Speed Port Fuzzer (Concurrency Tuning):** Tactically tuned the asynchronous concurrency limit, reducing the active semaphore from 1000 down to 500. This optimization prevents localized network saturation and minimizes packet drops, significantly increasing the accuracy of open-port detection against strict stateful firewalls.
+
 ## [v1.0.1] - 2026-03-13
 ### ⚡ Precision Intelligence & Tactical Evasion Update
 
