@@ -1,40 +1,54 @@
 import asyncio
 import re
+import os
 from typing import List
 from core.base import BaseScanner
 from models.report import EmailResult
 from utils.client import AsyncClient
 
+# Absolute path resolution to prevent execution context errors
+WORDLIST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "wordlist")
+
 class EmailHarvester(BaseScanner):
     """
-    Crawls surface pages of the target (home, contact, about) and uses 
-    a universal Regular Expression to harvest ANY exposed email addresses,
-    including generic providers like @outlook.com or @gmail.com.
+    Crawls surface pages of the target and uses an optimized Regex 
+    to harvest exposed email addresses. Implements a smart junk filter
+    that prioritizes target-domain emails and allows valid 3rd party providers.
     """
     async def execute(self) -> EmailResult:
         print(f"[*] EmailHarvester: Deep scraping for any contact emails on {self.target}...")
         
-        # DYNAMIC PATH SELECTION BASED ON VITES (-v)
+        # DYNAMIC PATH SELECTION
+        paths_to_check = ["", "contact", "about", "support"]
+        
         if self.deep_scan:
-            paths_to_check = [
-                "", "contact", "contact-us", "contact_us", "about", "about-us", 
-                "team", "support", "help", "contact.html", "contact.php", "about.html"
-            ]
-        else:
-            paths_to_check = ["", "contact", "about", "support"]
+            custom_path_file = os.path.join(WORDLIST_DIR, "email_paths.txt")
+            if os.path.exists(custom_path_file):
+                try:
+                    with open(custom_path_file, "r", encoding="utf-8") as f:
+                        paths_to_check = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+                except Exception as e:
+                    print(f"[!] EmailHarvester: Error reading email_paths.txt: {e}. Using defaults.")
+                    paths_to_check = [
+                        "", "contact", "contact-us", "about", "team", "support", "help"
+                    ]
 
         client = AsyncClient(timeout=10, proxy=self.proxy)
         found_emails = set()
         
-        # UNIVERSAL EMAIL REGEX 
-        email_pattern = re.compile(r'[a-zA-Z0-9.\-_+%]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
+        # UNIVERSAL EMAIL REGEX (Optimized)
+        email_pattern = re.compile(r'(?:[a-zA-Z0-9.\-_+%]*[a-zA-Z][a-zA-Z0-9.\-_+%]*)@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
 
-        # JUNK FILTER: We want to ignore default template emails, but KEEP outlook/gmail
+        # STRICT JUNK FILTER: Only obvious dummy domains, removed valid services like sentry/wix
         junk_domains = [
             "example.com", "domain.com", "yourdomain.com", 
-            "wixpress.com", "sentry.io", "name@email.com",
-            "yoursite.com"
+            "yoursite.com", "mysite.com", "email.com", "test.com"
         ]
+        
+        junk_locals = ["name", "email", "info@example", "contact@domain"]
+        
+        # Extract base target to protect native emails (e.g., target.com from www.target.com)
+        target_base = self.target.replace("www.", "")
 
         # Semaphore to prevent overwhelming the target's web server
         semaphore = asyncio.Semaphore(5)
@@ -51,27 +65,29 @@ class EmailHarvester(BaseScanner):
                     status, data, _ = await client.fetch(url_http, return_type="text")
 
                 if status == 200 and data:
-                    # Extract ALL emails from the HTML body
                     matches = email_pattern.findall(data)
                     for match in matches:
                         clean_match = match.lower()
                         
-                        # 1. FALSE POSITIVE FILTER: Ignore image files caught by regex (e.g., logo@2x.png)
+                        # 1. FALSE POSITIVE FILTER: Ignore image files caught by regex
                         if clean_match.endswith(('.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp')):
                             continue
                             
-                        # 2. JUNK FILTER: Ignore useless CMS template emails
-                        is_junk = any(junk in clean_match for junk in junk_domains)
+                        # 2. SMART JUNK FILTER: Precise matching using endswith/startswith
+                        is_junk_domain = any(clean_match.endswith(f"@{junk}") for junk in junk_domains)
+                        is_junk_local = any(clean_match.startswith(f"{junk}@") for junk in junk_locals)
                         
-                        # If it's not junk, add it! (This includes @outlook.com, @gmail.com, etc.)
-                        if not is_junk:
+                        # TARGET OVERRIDE: If the email ends with our target domain, it's NEVER junk
+                        if clean_match.endswith(f"@{target_base}"):
+                            is_junk_domain = False
+                        
+                        if not is_junk_domain and not is_junk_local:
                             found_emails.add(clean_match)
 
         # Fire all page scrapes concurrently
         tasks = [scrape_page(path) for path in paths_to_check]
         await asyncio.gather(*tasks)
 
-        # Sort alphabetically for a clean report
         emails_list = sorted(list(found_emails))
 
         if emails_list:
