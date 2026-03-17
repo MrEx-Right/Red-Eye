@@ -1,5 +1,4 @@
 import asyncio
-import socket
 import builtwith
 import warnings
 import urllib3
@@ -15,27 +14,23 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 class TechAnalyzer(BaseScanner):
     """
     BuiltWith + fallback header-based tech detection.
-    30s timeout, 2 retries, resilient to WinError 10060.
+    30s timeout, 2 retries, resilient thread execution.
     """
     async def execute(self) -> TechResult:
         print(f"[*] TechAnalyzer: Consulting BuiltWith + headers for {self.target}...")
 
         discovered_tech = set()
         loop = asyncio.get_running_loop()
-        timeout_sec = 30.0  # Extended timeout for WinError 10060
+        timeout_sec = 30.0  # Controlled safely by asyncio.wait_for
         max_retries = 2
 
         def run_builtwith(url):
-            # WinError 10060: urlopen/builtwith internal socket timeout is too short.
-            # Bump global socket timeout to 60s, restore when done.
-            old_to = socket.getdefaulttimeout()
+            # FIX: Removed global socket.setdefaulttimeout() to prevent thread collision across the engine.
+            # Relying entirely on asyncio.wait_for to kill hanging executions safely.
             try:
-                socket.setdefaulttimeout(60)
                 return builtwith.builtwith(url)
             except Exception:
                 return {}
-            finally:
-                socket.setdefaulttimeout(old_to)
 
         urls = [f"https://{self.target}"]
         if self.deep_scan:
