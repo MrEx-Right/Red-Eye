@@ -200,7 +200,7 @@ async def run_engine(target: str, deep_scan: bool, stealth: bool, output_file: s
             print(Fore.RED + f"[!] Could not save report. Error: {str(e)}")
 
 def main():
-    # LOGOYU BURAYA ALDIK, YARDIM MENÜSÜNDEN (-h) ÖNCE ÇALIŞACAK!
+   
     print(Fore.RED + Style.BRIGHT + f"""
           
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠱⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -230,7 +230,7 @@ def main():
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠓⠲⠤⢤⣀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
     RED EYE - Advanced OSINT & Reconnaissance Framework
-                    Version: 1.0.0
+                    Version: 1.0.2
           """ + Style.RESET_ALL)
 
     parser = argparse.ArgumentParser(
@@ -242,7 +242,7 @@ def main():
     target_group.add_argument("-t", "--target", help="Single target domain (e.g., target.com)", required=True)
 
     scan_group = parser.add_argument_group("Scan Configuration")
-    scan_group.add_argument("-m", "--modules", help="Comma-separated list of modules (e.g., waf,port,dir).")
+    scan_group.add_argument("-m", "--modules", help="Comma-separated list of modules (e.g., subdomain, waf, github, tech, port, ssl, dir, dns, email, archive, takeover).")
     
     scan_group.add_argument("-w", "--wordlist", default=None, help="Wordlist name without .txt (e.g., 'common' or 'dir')")
 
