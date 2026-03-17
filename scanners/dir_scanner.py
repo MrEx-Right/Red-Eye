@@ -7,10 +7,8 @@ from core.base import BaseScanner
 from models.report import DirResult
 from utils.client import AsyncClient
 
-# Path to wordlist folder (relative to project root)
-_BASE = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(_BASE)
-WORDLIST_DIR = os.path.join(_PROJECT_ROOT, "wordlist")
+# Absolute path resolution to prevent execution context errors
+WORDLIST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "wordlist")
 
 class DirScanner(BaseScanner):
 
@@ -49,15 +47,15 @@ class DirScanner(BaseScanner):
         found_dirs: List[str] = []
         client = AsyncClient(timeout=5, proxy=self.proxy)
         
-        # FIX 3: Dynamic Concurrency Limit. Gentle if stealth/delay is on, minigun otherwise.
+        # Dynamic Concurrency Limit. Gentle if stealth/delay is on, minigun otherwise.
         concurrency_limit = 20 if (self.stealth or self.delay > 0) else 150
         semaphore = asyncio.Semaphore(concurrency_limit) 
         
         async def check_dir(word: str):
-            # FIX 2: URL encode the payload to handle spaces and special characters safely
+            # URL encode the payload to handle spaces and special characters safely
             safe_word = urllib.parse.quote(word)
             
-            # FIX 1: Enforce HTTPS scheme for modern web targets
+            # Enforce HTTPS scheme for modern web targets
             url = f"https://{self.target}/{safe_word}"
             
             async with semaphore:
