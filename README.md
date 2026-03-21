@@ -83,6 +83,7 @@ python3 redeye.py -t [https://example.com](https://example.com) -v -o report.txt
 | `-v` | `--verbose` | Deep scan mode: Scans all 65,535 ports and uses extended checks. |
 | `-x` | `--proxy` | Route traffic through a proxy (e.g., `http://127.0.0.1:8080`). |
 | `-d` | `--delay` | Static delay between requests in seconds (e.g., `2.5`). |
+| `-g` | `--github-token`| GitHub Personal Access Token to bypass API rate limits (up to 5000 req/hr). |
 | `-o` | `--output` | Save the complete terminal output to a text file. |
 
 ## ⚠️ Disclaimer
