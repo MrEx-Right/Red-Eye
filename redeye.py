@@ -25,12 +25,13 @@ from scanners.dns_scanner import DnsScanner
 from scanners.email_harvester import EmailHarvester
 from scanners.archive_scanner import ArchiveScanner
 from scanners.takeover_scanner import TakeoverScanner
+from scanners.js_analyzer import JsAnalyzer
 
 init(autoreset=True)  
 
 
 async def run_engine(target: str, deep_scan: bool, stealth: bool, output_file: str, selected_modules: str, proxy: str, delay: float, wordlist: str):
-    # LOGO BURADAN SÖKÜLDÜ, MAIN İÇİNE TAŞINDI
+    
     print(Style.RESET_ALL + f"[*] Target locked: {Fore.CYAN}{target}{Style.RESET_ALL}")
     
     if stealth:
@@ -55,7 +56,8 @@ async def run_engine(target: str, deep_scan: bool, stealth: bool, output_file: s
         "dns": DnsScanner,
         "email": EmailHarvester,
         "archive": ArchiveScanner,
-        "takeover": TakeoverScanner
+        "takeover": TakeoverScanner,
+        "js": JsAnalyzer
     }
 
     active_scanners = []
@@ -185,6 +187,21 @@ async def run_engine(target: str, deep_scan: bool, stealth: bool, output_file: s
             block += f"Status: {'VULNERABLE' if result.vulnerable_subdomains else 'Secure'}\n"
             block += "-" * 40 + "\n"
 
+        elif name == "JsResult":
+            block += f"--- [ Source: JavaScript Analyzer ] ---\n"
+            block += f"Target: {result.target_domain}\n"
+            block += f"JS Files Scanned: {result.js_files_scanned}\n"
+            if result.secrets_found:
+                block += "Exposed Secrets & Endpoints:\n"
+                for secret_type, items in result.secrets_found.items():
+                    block += f"  [{secret_type}]\n"
+                    
+                    for item in items:
+                        block += f"   -> {item}\n"
+            else:
+                block += "No hardcoded secrets or internal endpoints found.\n"
+            block += "-" * 40 + "\n"
+
         print(block, end="")
         full_report_text += block
 
@@ -230,7 +247,7 @@ def main():
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠓⠲⠤⢤⣀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
     RED EYE - Advanced OSINT & Reconnaissance Framework
-                    Version: 1.0.2
+                    Version: 1.1.0
           """ + Style.RESET_ALL)
 
     parser = argparse.ArgumentParser(
@@ -242,7 +259,7 @@ def main():
     target_group.add_argument("-t", "--target", help="Single target domain (e.g., target.com)", required=True)
 
     scan_group = parser.add_argument_group("Scan Configuration")
-    scan_group.add_argument("-m", "--modules", help="Comma-separated list of modules (e.g., subdomain, waf, github, tech, port, ssl, dir, dns, email, archive, takeover).")
+    scan_group.add_argument("-m", "--modules", help="Comma-separated list of modules (e.g., subdomain, waf, github, tech, port, ssl, dir, dns, email, archive, takeover, js).")
     
     scan_group.add_argument("-w", "--wordlist", default=None, help="Wordlist name without .txt (e.g., 'common' or 'dir')")
 
@@ -251,6 +268,7 @@ def main():
     perf_group.add_argument("-v", "--verbose", action="store_true", help="Deep scan mode")
     perf_group.add_argument("-x", "--proxy", help="HTTP/S proxy URL")
     parser.add_argument("-d", "--delay", type=float, default=0.0, help="Delay between requests in seconds")
+    scan_group.add_argument("-g", "--github-token", default=None, help="GitHub Personal Access Token for authenticated scanning")
 
     out_group = parser.add_argument_group("Output Options")
     out_group.add_argument("-o", "--output", help="Save the results to a text file")
