@@ -9,7 +9,7 @@ class GithubDorker(BaseScanner):
     """
     Scans GitHub repositories for potential sensitive data leaks
     related to the target domain using GitHub REST API.
-    Now with pagination and graceful rate-limit handling!
+    Now with pagination, graceful rate-limit handling, and Token support!
     """
     async def execute(self) -> GithubResult:
         print(f"[*] GithubDorker: Hunting for leaked secrets for {self.target} on GitHub...")
@@ -17,7 +17,7 @@ class GithubDorker(BaseScanner):
         # A simple dork query looking for the domain alongside juicy keywords
         query = f'"{self.target}" AND ("password" OR "token" OR "secret" OR "api_key")'
         
-        # FIX 1: Maximize the loot with per_page=100
+        # Maximize the loot with per_page=100
         url = f"https://api.github.com/search/code?q={query}&per_page=100"
         
         # GitHub API strictly requires a User-Agent
@@ -25,6 +25,11 @@ class GithubDorker(BaseScanner):
             "Accept": "application/vnd.github.v3+json",
             "User-Agent": "RedEye-OSINT-Framework"
         }
+        
+        # Authenticated Mode: Bypass the 60 req/hr limit up to 5000 req/hr
+        if self.github_token:
+            headers["Authorization"] = f"token {self.github_token}"
+            print("[*] GithubDorker: Authenticated mode active! API limits significantly increased.")
         
         leaks_count = 0
         samples: List[str] = []
@@ -46,7 +51,7 @@ class GithubDorker(BaseScanner):
                             break # Success! Break out of the retry loop
                             
                         elif response.status == 403:
-                            # FIX 2: Professional Rate Limit Handling
+                            # Professional Rate Limit Handling
                             retry_after = response.headers.get("Retry-After")
                             reset_time = response.headers.get("X-RateLimit-Reset")
                             wait_time = 0
