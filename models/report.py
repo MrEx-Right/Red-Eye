@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List
 
 @dataclass
@@ -65,3 +65,9 @@ class ArchiveResult:
 class TakeoverResult:
     target_domain: str
     vulnerable_subdomains: List[str]
+
+@dataclass
+class JsResult:
+    target_domain: str
+    js_files_scanned: int
+    secrets_found: dict = field(default_factory=dict)
