@@ -2,6 +2,12 @@
 
 All notable changes to the **Red Eye** project will be documented in this file.
 
+## [v1.1.0] - 2026-03-21
+### 🕷️ Arsenal Expansion & Authentication Upgrade
+
+- **JavaScript Secret Hunter (New Module):** Introduced a brand-new reconnaissance engine dedicated to frontend static analysis. The module dynamically crawls targets for referenced JavaScript assets, concurrently downloads them, and utilizes a heavy-duty regex arsenal to extract hardcoded AWS keys, Stripe tokens, Mailgun credentials, and hidden internal API endpoints.
+- **GitHub Intelligence Engine (Auth Upgrade):** Upgraded the module with Personal Access Token (PAT) support via the new `-g` flag. Authenticated operators can now completely bypass the restrictive 60 requests/hour anonymous limit, unlocking a massive 5,000 requests/hour capacity for uninterrupted, deep-dive repository scanning.
+
 ## [v1.0.2] - 2026-03-18
 ### ⚙️ Core Stability & Intelligence Tuning
 
