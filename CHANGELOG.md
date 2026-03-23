@@ -2,6 +2,12 @@
 
 All notable changes to the **Red Eye** project will be documented in this file.
 
+## [v1.2.0] - 2026-03-23
+### 🕵️‍♂️ Deep OSINT & Artifact Recovery Update
+
+- **Social Media & OSINT Engine (New Module):** Deployed a zero-API dorking engine that stealthily scrapes raw HTML search results (via DuckDuckGo Lite) to uncover target mentions across Pastebin, Trello, LinkedIn, and Twitter. This module allows operators to trace external data leaks and digital footprints completely anonymously.
+- **Backup & Archive Hunter (New Module):** Introduced a highly targeted fuzzing module designed to hunt down forgotten server backups, database dumps, and residual configuration files. The engine dynamically parses the target's domain name to generate custom, high-probability payloads (e.g., `.zip`, `.sql`, `.bak`) and executes them through our asynchronous concurrency gearbox to uncover catastrophic administrative blunders.
+
 ## [v1.1.0] - 2026-03-21
 ### 🕷️ Arsenal Expansion & Authentication Upgrade
 
