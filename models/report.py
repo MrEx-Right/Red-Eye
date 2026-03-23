@@ -71,3 +71,13 @@ class JsResult:
     target_domain: str
     js_files_scanned: int
     secrets_found: dict = field(default_factory=dict)
+
+@dataclass
+class SmResult:
+    target_domain: str
+    platform_mentions: dict = field(default_factory=dict)
+
+@dataclass
+class BackupResult:
+    target_domain: str
+    found_backups: List[str]
