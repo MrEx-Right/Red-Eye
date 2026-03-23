@@ -26,6 +26,8 @@ from scanners.email_harvester import EmailHarvester
 from scanners.archive_scanner import ArchiveScanner
 from scanners.takeover_scanner import TakeoverScanner
 from scanners.js_analyzer import JsAnalyzer
+from scanners.sm_scanner import SmScanner
+from scanners.backup_scanner import BackupScanner
 
 init(autoreset=True)  
 
@@ -57,7 +59,9 @@ async def run_engine(target: str, deep_scan: bool, stealth: bool, output_file: s
         "email": EmailHarvester,
         "archive": ArchiveScanner,
         "takeover": TakeoverScanner,
-        "js": JsAnalyzer
+        "js": JsAnalyzer,
+        "sm": SmScanner,
+        "backup": BackupScanner
     }
 
     active_scanners = []
@@ -201,6 +205,30 @@ async def run_engine(target: str, deep_scan: bool, stealth: bool, output_file: s
             else:
                 block += "No hardcoded secrets or internal endpoints found.\n"
             block += "-" * 40 + "\n"
+        
+        elif name == "SmResult":
+            block += f"--- [ Source: Social Media & OSINT ] ---\n"
+            block += f"Target: {result.target_domain}\n"
+            if result.platform_mentions:
+                block += "Platform Mentions Found:\n"
+                for platform, urls in result.platform_mentions.items():
+                    block += f"  [{platform}]\n"
+                    for url in urls:
+                        block += f"   -> {url}\n"
+            else:
+                block += "No platform mentions detected.\n"
+            block += "-" * 40 + "\n"
+
+        elif name == "BackupResult":
+            block += f"--- [ Source: Backup & Archive Hunter ] ---\n"
+            block += f"Target: {result.target_domain}\n"
+            if result.found_backups:
+                block += f"CRITICAL - Exposed Files Found ({len(result.found_backups)}):\n"
+                for file_path in result.found_backups:
+                    block += f"   -> {file_path}\n"
+            else:
+                block += "No exposed backups or configuration files found.\n"
+            block += "-" * 40 + "\n"
 
         print(block, end="")
         full_report_text += block
@@ -247,7 +275,7 @@ def main():
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠓⠲⠤⢤⣀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
     RED EYE - Advanced OSINT & Reconnaissance Framework
-                    Version: 1.1.0
+                    Version: 1.2.0
           """ + Style.RESET_ALL)
 
     parser = argparse.ArgumentParser(
@@ -259,7 +287,7 @@ def main():
     target_group.add_argument("-t", "--target", help="Single target domain (e.g., target.com)", required=True)
 
     scan_group = parser.add_argument_group("Scan Configuration")
-    scan_group.add_argument("-m", "--modules", help="Comma-separated list of modules (e.g., subdomain, waf, github, tech, port, ssl, dir, dns, email, archive, takeover, js).")
+    scan_group.add_argument("-m", "--modules", help="Comma-separated list of modules (e.g., subdomain, waf, github, tech, port, ssl, dir, dns, email, archive, takeover, js, sm, backup).")
     
     scan_group.add_argument("-w", "--wordlist", default=None, help="Wordlist name without .txt (e.g., 'common' or 'dir')")
 
