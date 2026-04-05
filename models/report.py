@@ -81,3 +81,15 @@ class SmResult:
 class BackupResult:
     target_domain: str
     found_backups: List[str]
+
+@dataclass
+class RobotsResult:
+    target_domain: str
+    extracted_paths: List[str]
+
+@dataclass
+class CloudResult:
+    target_domain: str
+    primary_provider: str
+    is_cloudflare: bool
+    s3_buckets_found: List[str]
