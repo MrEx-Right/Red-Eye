@@ -28,7 +28,8 @@ from scanners.takeover_scanner import TakeoverScanner
 from scanners.js_analyzer import JsAnalyzer
 from scanners.sm_scanner import SmScanner
 from scanners.backup_scanner import BackupScanner
-
+from scanners.robots_scanner import RobotsScanner
+from scanners.cloud_detector import CloudDetector
 init(autoreset=True)  
 
 
@@ -61,7 +62,9 @@ async def run_engine(target: str, deep_scan: bool, stealth: bool, output_file: s
         "takeover": TakeoverScanner,
         "js": JsAnalyzer,
         "sm": SmScanner,
-        "backup": BackupScanner
+        "backup": BackupScanner,
+        "robots": RobotsScanner,
+        "cloud": CloudDetector
     }
 
     active_scanners = []
@@ -230,6 +233,33 @@ async def run_engine(target: str, deep_scan: bool, stealth: bool, output_file: s
                 block += "No exposed backups or configuration files found.\n"
             block += "-" * 40 + "\n"
 
+        elif name == "RobotsResult":
+            block += f"--- [ Source: Robots & Sitemap Scanner ] ---\n"
+            block += f"Target: {result.target_domain}\n"
+            block += f"Extracted Paths: {len(result.extracted_paths)}\n"
+            if result.extracted_paths:
+                # Ekrana çok kusmasın diye ilk 10 tanesini gösteriyoruz
+                for path in result.extracted_paths[:10]:
+                    block += f"  -> {path}\n"
+                if len(result.extracted_paths) > 10:
+                    block += f"  ... and {len(result.extracted_paths) - 10} more.\n"
+            else:
+                block += "No paths found.\n"
+            block += "-" * 40 + "\n"
+        elif name == "CloudResult":
+            block += f"--- [ Source: Cloud Infrastructure & S3 Hunter ] ---\n"
+            block += f"Target: {result.target_domain}\n"
+            block += f"Primary Provider: {result.primary_provider}\n"
+            block += f"Behind Cloudflare: {'Yes' if result.is_cloudflare else 'No'}\n"
+            
+            if result.s3_buckets_found:
+                block += "Exposed S3 Buckets:\n"
+                for bucket in result.s3_buckets_found:
+                    block += f"  -> {bucket}\n"
+            else:
+                block += "S3 Buckets: None found.\n"
+            block += "-" * 40 + "\n"
+
         print(block, end="")
         full_report_text += block
 
@@ -275,7 +305,7 @@ def main():
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠓⠲⠤⢤⣀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
     RED EYE - Advanced OSINT & Reconnaissance Framework
-                    Version: 1.2.0
+                    Version: 1.3.0
           """ + Style.RESET_ALL)
 
     parser = argparse.ArgumentParser(
@@ -287,7 +317,7 @@ def main():
     target_group.add_argument("-t", "--target", help="Single target domain (e.g., target.com)", required=True)
 
     scan_group = parser.add_argument_group("Scan Configuration")
-    scan_group.add_argument("-m", "--modules", help="Comma-separated list of modules (e.g., subdomain, waf, github, tech, port, ssl, dir, dns, email, archive, takeover, js, sm, backup).")
+    scan_group.add_argument("-m", "--modules", help="Comma-separated list of modules (e.g., subdomain, waf, github, tech, port, ssl, dir, dns, email, archive, takeover, js, sm, backup, robots, cloud).")
     
     scan_group.add_argument("-w", "--wordlist", default=None, help="Wordlist name without .txt (e.g., 'common' or 'dir')")
 
