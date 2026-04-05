@@ -2,6 +2,12 @@
 
 All notable changes to the **Red Eye** project will be documented in this file.
 
+## [v1.3.0] - 2026-04-05
+### ☁️ Cloud Footprinting & Passive Recon Update
+
+- **Robots & Sitemap Scanner (New Module):** Introduced a stealthy, passive reconnaissance engine that automatically parses `robots.txt` rules and extracts `<loc>` tags from XML sitemaps (including dynamically discovered sitemap URLs via Regex). This allows operators to silently harvest hidden administrative endpoints and "Disallowed" directories without triggering WAF alerts or relying on noisy directory brute-forcing.
+- **Cloud & S3 Detector (New Module):** Deployed an advanced infrastructure analysis engine that utilizes Reverse DNS (PTR) lookups and asynchronous HTTP header inspection to fingerprint the underlying cloud provider (AWS, GCP, Azure, Cloudflare). Furthermore, it features a highly concurrent, semaphore-controlled S3 bucket fuzzer that dynamically generates custom bucket permutations based on the target domain, hunting down critical data exposures in misconfigured public AWS storage.
+
 ## [v1.2.0] - 2026-03-23
 ### 🕵️‍♂️ Deep OSINT & Artifact Recovery Update
 
