@@ -93,3 +93,9 @@ class CloudResult:
     primary_provider: str
     is_cloudflare: bool
     s3_buckets_found: List[str]
+
+@dataclass
+class BreachResult:
+    target_domain: str
+    total_leaks: int
+    breaches_found: List[str] = field(default_factory=list)
