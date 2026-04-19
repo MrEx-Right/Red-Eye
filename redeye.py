@@ -12,6 +12,14 @@ if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
         pass
 
 from colorama import init, Fore, Style
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.layout import Layout
+
+console = Console()
 
 # Importing our newly forged scanners!
 from scanners.subdomain_scanner import SubdomainScanner
@@ -30,19 +38,20 @@ from scanners.sm_scanner import SmScanner
 from scanners.backup_scanner import BackupScanner
 from scanners.robots_scanner import RobotsScanner
 from scanners.cloud_detector import CloudDetector
+from scanners.breach_scanner import BreachScanner
 init(autoreset=True)  
 
 
 async def run_engine(target: str, deep_scan: bool, stealth: bool, output_file: str, selected_modules: str, proxy: str, delay: float, wordlist: str):
     
-    print(Style.RESET_ALL + f"[*] Target locked: {Fore.CYAN}{target}{Style.RESET_ALL}")
+    console.rule(f"[bold cyan]Target Locked: {target}[/bold cyan]", align="left")
     
     if stealth:
-        print(Fore.YELLOW + "[!] STEALTH MODE ENGAGED (-q): Requests will be slower.")
+        console.print("[yellow][!] STEALTH MODE ENGAGED (-q): Requests will be slower.[/yellow]")
     if deep_scan:
-        print(Fore.YELLOW + "[!] DEEP SCAN ENGAGED (-v): Enhanced wordlists & checks activated.")
+        console.print("[yellow][!] DEEP SCAN ENGAGED (-v): Enhanced wordlists & checks activated.[/yellow]")
     if proxy:
-        print(Fore.MAGENTA + f"[!] PROXY ENGAGED (-x): Routing all traffic through {proxy}")
+        console.print(f"[magenta][!] PROXY ENGAGED (-x): Routing all traffic through {proxy}[/magenta]")
 
     start_time = time.time()
 
@@ -64,7 +73,8 @@ async def run_engine(target: str, deep_scan: bool, stealth: bool, output_file: s
         "sm": SmScanner,
         "backup": BackupScanner,
         "robots": RobotsScanner,
-        "cloud": CloudDetector
+        "cloud": CloudDetector,
+        "breach": BreachScanner
     }
 
     active_scanners = []
@@ -84,17 +94,17 @@ async def run_engine(target: str, deep_scan: bool, stealth: bool, output_file: s
             active_scanners.append(scanner_class(target, deep_scan, stealth, proxy, delay, wordlist))
 
     if not active_scanners:
-        print(Fore.RED + "[!] No valid modules selected. Aborting scan.")
+        console.print("[bold red][!] No valid modules selected. Aborting scan.[/bold red]")
         return
 
-    print(f"[*] Firing {len(active_scanners)} scanner(s) simultaneously...\n")
-    
     # Executing the asynchronous tasks
     # return_exceptions=True: One failing scanner won't abort the others
     tasks = [scanner.execute() for scanner in active_scanners]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    with console.status(f"[bold green]Firing {len(active_scanners)} scanner(s) simultaneously...[/bold green]", spinner="bouncingBar"):
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    print("\n[+] All scanners reported back. Processing results...\n")
+    console.print("\n[bold green][+] All scanners reported back. Processing results...[/bold green]\n")
     
     full_report_text = f"RED EYE SCAN REPORT FOR: {target}\n"
     full_report_text += "=" * 50 + "\n\n"
@@ -246,6 +256,7 @@ async def run_engine(target: str, deep_scan: bool, stealth: bool, output_file: s
             else:
                 block += "No paths found.\n"
             block += "-" * 40 + "\n"
+
         elif name == "CloudResult":
             block += f"--- [ Source: Cloud Infrastructure & S3 Hunter ] ---\n"
             block += f"Target: {result.target_domain}\n"
@@ -259,24 +270,50 @@ async def run_engine(target: str, deep_scan: bool, stealth: bool, output_file: s
             else:
                 block += "S3 Buckets: None found.\n"
             block += "-" * 40 + "\n"
+        
+        elif name == "BreachResult":
+            block += f"--- [ Source: Breach & Leak Intelligence ] ---\n"
+            block += f"Target: {result.target_domain}\n"
+            if result.total_leaks > 0:
+                block += f"CRITICAL - Historical Breaches Found: {result.total_leaks}\n"
+                for breach in result.breaches_found:
+                    block += f"   -> {breach}\n"
+            else:
+                block += "Clean: No public breaches or leaks detected.\n"
+            block += "-" * 40 + "\n"
 
-        print(block, end="")
+        # Use Rich Panel for beautiful UI
+        clean_block = block.strip()
+        if clean_block.endswith('-' * 40):
+            clean_block = clean_block[:-40].strip()
+            
+        title = "Scanner Result"
+        if clean_block.startswith("--- ["):
+            lines = clean_block.split('\n')
+            title = lines[0].replace("--- [", "").replace("] ---", "").strip()
+            clean_block = '\n'.join(lines[1:]).strip()
+            
+        if "CRITICAL" in clean_block or "VULNERABILITY" in clean_block or "VULNERABLE" in clean_block:
+            console.print(Panel(clean_block, title=f"[bold red]{title}[/bold red]", border_style="red", expand=False))
+        else:
+            console.print(Panel(clean_block, title=f"[bold cyan]{title}[/bold cyan]", border_style="blue", expand=False))
+            
         full_report_text += block
 
     elapsed = time.time() - start_time
-    print(f"\n[+] Scan operations completed successfully in {elapsed:.2f} seconds.")
+    console.print(f"\n[bold green][+] Scan operations completed successfully in {elapsed:.2f} seconds.[/bold green]")
 
     if output_file:
         try:
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(full_report_text)
-            print(Fore.GREEN + f"[+] Success! Full scan report saved to: {output_file}")
+            console.print(f"[bold green][+] Success! Full scan report saved to: {output_file}[/bold green]")
         except Exception as e:
-            print(Fore.RED + f"[!] Could not save report. Error: {str(e)}")
+            console.print(f"[bold red][!] Could not save report. Error: {str(e)}[/bold red]")
 
 def main():
    
-    print(Fore.RED + Style.BRIGHT + f"""
+    banner = """
           
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠱⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡄⢹⠀⠀⠀⠀⠀⡀⠀⠀⠀⠀⠀⠀⣇⠀⠀⠀⠀⠀⠀⢀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -305,8 +342,9 @@ def main():
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠓⠲⠤⢤⣀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
     RED EYE - Advanced OSINT & Reconnaissance Framework
-                    Version: 1.3.0
-          """ + Style.RESET_ALL)
+                    Version: 1.4.0
+          """
+    console.print(Text(banner, style="bold red"))
 
     parser = argparse.ArgumentParser(
         description="Red Eye - Advanced OSINT & Reconnaissance Framework",
@@ -317,7 +355,7 @@ def main():
     target_group.add_argument("-t", "--target", help="Single target domain (e.g., target.com)", required=True)
 
     scan_group = parser.add_argument_group("Scan Configuration")
-    scan_group.add_argument("-m", "--modules", help="Comma-separated list of modules (e.g., subdomain, waf, github, tech, port, ssl, dir, dns, email, archive, takeover, js, sm, backup, robots, cloud).")
+    scan_group.add_argument("-m", "--modules", help="Comma-separated list of modules (e.g., subdomain, waf, github, tech, port, ssl, dir, dns, email, archive, takeover, js, sm, backup, robots, cloud, breach).")
     
     scan_group.add_argument("-w", "--wordlist", default=None, help="Wordlist name without .txt (e.g., 'common' or 'dir')")
 
@@ -350,7 +388,7 @@ def main():
             args.wordlist 
         ))
     except KeyboardInterrupt:
-        print("\n[!] Engine aborted by user. Exiting cleanly...")
+        console.print("\n[bold red][!] Engine aborted by user. Exiting cleanly...[/bold red]")
         sys.exit(1)
 
 if __name__ == "__main__":
