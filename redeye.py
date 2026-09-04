@@ -42,7 +42,9 @@ from scanners.breach_scanner import BreachScanner
 from scanners.shodan_scanner import ShodanScanner
 from scanners.header_analyzer import HeaderAnalyzer
 from scanners.whois_scanner import WhoisScanner
-init(autoreset=True)  
+from scanners.origin_scanner import OriginIPFinder
+from scanners.jwt_scanner import JwtDecoder
+init(autoreset=True)
 
 
 async def run_engine(target: str, stealth: bool, output_file: str, selected_modules: str, proxy: str, delay: float, wordlist: str):
@@ -79,6 +81,8 @@ async def run_engine(target: str, stealth: bool, output_file: str, selected_modu
         "shodan": ShodanScanner,
         "headers": HeaderAnalyzer,
         "whois": WhoisScanner,
+        "origin": OriginIPFinder,
+        "jwt": JwtDecoder,
     }
 
     active_scanners = []
@@ -364,6 +368,43 @@ async def run_engine(target: str, stealth: bool, output_file: str, selected_modu
                 block += f"Status: {', '.join(result.status[:3])}\n"
             block += "-" * 40 + "\n"
 
+        elif name == "CdnBypassResult":
+            block += f"--- [ Source: Origin IP / CDN Bypass Finder ] ---\n"
+            block += f"Target: {result.target_domain}\n"
+            block += f"Main IP: {result.main_ip}\n"
+            block += f"Behind CDN/WAF: {'Yes (' + result.cdn_indicator + ')' if result.behind_cdn else 'No'}\n"
+            block += f"MX Host: {result.mx_hostname} -> {result.mx_ip}"
+            block += " [Differs from main IP]\n" if result.mx_ip_differs else "\n"
+            if result.candidate_origin_ips:
+                block += f"Candidate Origin IPs ({len(result.candidate_origin_ips)}):\n"
+                for ip in result.candidate_origin_ips:
+                    block += f"  -> {ip}\n"
+            else:
+                block += "Candidate Origin IPs: None found.\n"
+            if result.confirmed_origin_ip:
+                block += f"CRITICAL - BYPASS CONFIRMED: {result.confirmed_origin_ip} ({result.confirmed_via})\n"
+            block += "-" * 40 + "\n"
+
+        elif name == "JwtResult":
+            block += f"--- [ Source: JWT Decoder & Vulnerability Analyzer ] ---\n"
+            block += f"Target: {result.target_domain}\n"
+            block += f"JS Files Scanned: {result.js_files_scanned}\n"
+            block += f"JWTs Found: {result.tokens_found}\n"
+            if result.decoded_tokens:
+                for token in result.decoded_tokens:
+                    block += f"  [{token['token_preview']}] alg={token['alg']}"
+                    block += ", EXPIRED" if token['expired'] else ""
+                    block += "\n"
+                    if token['sensitive_claims']:
+                        block += f"    Sensitive claims exposed: {', '.join(token['sensitive_claims'])}\n"
+            if result.vulnerabilities:
+                block += "Vulnerabilities:\n"
+                for v in result.vulnerabilities:
+                    block += f"  [!] {v}\n"
+            elif result.tokens_found > 0:
+                block += "No vulnerabilities flagged on discovered tokens.\n"
+            block += "-" * 40 + "\n"
+
         # Use Rich Panel for beautiful UI
         clean_block = block.strip()
         if clean_block.endswith('-' * 40):
@@ -424,7 +465,7 @@ def main():
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠓⠲⠤⢤⣀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
     RED EYE - Advanced OSINT & Reconnaissance Framework
-                    Version: 1.5.0
+                    Version: 1.6.0
           """
     console.print(Text(banner, style="bold red"))
 
@@ -437,7 +478,7 @@ def main():
     target_group.add_argument("-t", "--target", help="Single target domain (e.g., target.com)", required=True)
 
     scan_group = parser.add_argument_group("Scan Configuration")
-    scan_group.add_argument("-m", "--modules", help="Comma-separated list of modules (e.g., subdomain, waf, github, tech, port, ssl, dir, dns, email, archive, takeover, js, sm, backup, robots, cloud, breach, shodan, headers, whois).")
+    scan_group.add_argument("-m", "--modules", help="Comma-separated list of modules (e.g., subdomain, waf, github, tech, port, ssl, dir, dns, email, archive, takeover, js, sm, backup, robots, cloud, breach, shodan, headers, whois, origin, jwt).")
 
     
     scan_group.add_argument("-w", "--wordlist", default=None, help="Wordlist name without .txt (e.g., 'common' or 'dir')")

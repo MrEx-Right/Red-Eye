@@ -151,3 +151,24 @@ class WhoisResult:
     is_expired: bool
     is_expiring_soon: bool
     privacy_protected: bool
+
+@dataclass
+class CdnBypassResult:
+    target_domain: str
+    main_ip: str
+    behind_cdn: bool
+    cdn_indicator: str
+    mx_hostname: str
+    mx_ip: str
+    mx_ip_differs: bool
+    candidate_origin_ips: List[str] = field(default_factory=list)
+    confirmed_origin_ip: str = ""
+    confirmed_via: str = ""
+
+@dataclass
+class JwtResult:
+    target_domain: str
+    js_files_scanned: int
+    tokens_found: int
+    decoded_tokens: List[dict] = field(default_factory=list)
+    vulnerabilities: List[str] = field(default_factory=list)

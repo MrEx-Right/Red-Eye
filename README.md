@@ -36,7 +36,7 @@
     RED EYE - Advanced OSINT & Reconnaissance Framework
 ```
 
-**Red Eye** is a blazing fast, highly asynchronous reconnaissance and OSINT framework designed for red teamers, bug bounty hunters, and cybersecurity researchers. Built with raw speed and stealth in mind, it unleashes 20 simultaneous scanners against a target domain to extract critical infrastructure data, hidden endpoints, and leaked secrets.
+**Red Eye** is a blazing fast, highly asynchronous reconnaissance and OSINT framework designed for red teamers, bug bounty hunters, and cybersecurity researchers. Built with raw speed and stealth in mind, it unleashes 22 simultaneous scanners against a target domain to extract critical infrastructure data, hidden endpoints, and leaked secrets.
 
 ## 🚀 Features
 * **Asynchronous Engine:** Powered by `asyncio` and `aiohttp`. Scans that usually take minutes are executed in seconds.

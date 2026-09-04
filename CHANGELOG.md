@@ -2,6 +2,16 @@
 
 All notable changes to the **Red Eye** project will be documented in this file.
 
+## [1.6.0] - 2026-09-05
+
+### Added
+- **Origin IP / CDN Bypass Finder (`origin_scanner.py`)**: Purely passive module that hunts for a target's real origin server IP even when it's hidden behind a CDN/WAF (Cloudflare, Akamai, etc). Resolves the main A-record and fingerprints CDN presence via response headers, compares the MX exchange's IP against the main IP (mail servers are frequently left unproxied), and sweeps a set of common "leaky" subdomain prefixes (`direct`, `origin`, `ftp`, `cpanel`, `mail`, `dev`, `staging`, `api`, `portal`, `webmail`, `autodiscover`) concurrently for IPs that differ from the CDN's. Every candidate IP is then confirmed (not just guessed) via a direct TLS handshake that forces SNI to the real target domain — only a chain-validated match is reported as a confirmed bypass.
+- **JWT Decoder & Vulnerability Analyzer (`jwt_scanner.py`)**: Crawls the target's frontend JS files and `Set-Cookie` headers for embedded JWTs, then statically decodes and audits each one: flags `alg: none` signature-bypass tokens, detects expired tokens via the `exp` claim, surfaces sensitive-looking claims (`role`, `admin`, `permissions`, `password`, `secret`, `ssn`, etc.) leaking in the payload, and attempts to crack HS256 signatures against a small built-in list of common weak secrets. No new dependency required — decoding and cracking use only the Python standard library (`base64`, `json`, `hmac`, `hashlib`).
+
+### Changed
+- **Main Engine (`redeye.py`)**: Registered `origin` and `jwt` modules to the scanner dictionary. Extended the rendering engine to output the new `CdnBypassResult` and `JwtResult` panels, flagging confirmed origin-IP bypasses and cracked/`alg:none` JWTs as CRITICAL findings. Updated banner version to `1.6.0`.
+- **Report Models (`models/report.py`)**: Introduced `CdnBypassResult` and `JwtResult` dataclasses.
+
 ## [1.5.0] - 2026-07-05
 
 ### Added
