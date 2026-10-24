@@ -13,9 +13,13 @@ class JsAnalyzer(BaseScanner):
     secrets, API keys, and hidden internal endpoints.
     """
     async def execute(self) -> JsResult:
+        # One pooled session for the index page and every JS file
+        async with AsyncClient(timeout=10, proxy=self.proxy) as client:
+            return await self._scan(client)
+
+    async def _scan(self, client: AsyncClient) -> JsResult:
         print(f"[*] JsAnalyzer: Hunting for hardcoded secrets in JS files on {self.target}...")
         
-        client = AsyncClient(timeout=10, proxy=self.proxy)
         base_url = f"https://{self.target}"
         
         # 1. Fetch the main page to find JS links
@@ -34,7 +38,7 @@ class JsAnalyzer(BaseScanner):
         js_links = set(script_pattern.findall(data))
         
         if not js_links:
-            print(f"[-] JsAnalyzer: No external JS files found on the index page.")
+            print("[-] JsAnalyzer: No external JS files found on the index page.")
             return JsResult(target_domain=self.target, js_files_scanned=0)
 
         # Normalize URLs (convert relative paths to absolute URLs)
@@ -64,7 +68,7 @@ class JsAnalyzer(BaseScanner):
                 if self.delay > 0:
                     await asyncio.sleep(self.delay)
                     
-                js_status, js_content, _ = await client.fetch(js_url, return_type="text")
+                js_status, js_content, _ = await client.fetch(js_url, return_type="text", max_bytes=10_000_000)
                 if js_status == 200 and js_content:
                     # Scan the content against our regex arsenal
                     for secret_name, pattern in regex_arsenal.items():
@@ -85,7 +89,7 @@ class JsAnalyzer(BaseScanner):
         if total_secrets > 0:
             print(f"[+] JsAnalyzer: BINGO! Uncovered {total_secrets} potential secrets/endpoints across {len(js_urls)} JS files.")
         else:
-            print(f"[-] JsAnalyzer: JS files look clean. No obvious hardcoded secrets found.")
+            print("[-] JsAnalyzer: JS files look clean. No obvious hardcoded secrets found.")
 
         # Convert sets to sorted lists for the final report
         report_secrets = {k: sorted(list(v)) for k, v in found_secrets.items()}

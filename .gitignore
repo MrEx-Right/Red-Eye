@@ -1,3 +1,5 @@
 .vscode
 __pycache__
 update.txt
+.pytest_cache
+tests/__pycache__

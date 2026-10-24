@@ -1,6 +1,7 @@
 import asyncio
-from typing import Dict, List
+from typing import Dict
 from core.base import BaseScanner
+from models.report import HeaderResult
 from utils.client import AsyncClient
 
 
@@ -37,9 +38,12 @@ SECURITY_HEADERS = {
         "check": lambda v: len(v) > 0
     },
     "X-XSS-Protection": {
-        "desc": "Legacy XSS filter for older browsers.",
+        # OWASP now recommends "0" (or omitting it): the legacy auditor can
+        # itself be abused for XSS, so only "1" is reported, never absence.
+        "desc": "Legacy XSS auditor — should be '0' or absent.",
         "risk": "LOW",
-        "check": lambda v: v.startswith("1")
+        "required": False,
+        "check": lambda v: v.strip().startswith("0")
     },
     "Cross-Origin-Opener-Policy": {
         "desc": "COOP — Isolates browser context from cross-origin attacks.",
@@ -72,19 +76,6 @@ INFO_LEAK_HEADERS = [
 ]
 
 
-class HeaderResult:
-    """Holds HTTP security header analysis results."""
-    def __init__(self, target_domain: str):
-        self.target_domain = target_domain
-        self.url_scanned: str = ""
-        self.present_headers: Dict[str, str] = {}        # header -> value
-        self.missing_headers: Dict[str, dict] = {}       # header -> meta
-        self.misconfigured_headers: Dict[str, str] = {}  # header -> value (present but wrong)
-        self.info_leak_headers: Dict[str, str] = {}      # header -> value (tech disclosure)
-        self.security_score: int = 0                     # 0-100
-        self.grade: str = "F"
-
-
 class HeaderAnalyzer(BaseScanner):
     """
     HTTP Security Header Analyzer — fetches the target's response headers
@@ -100,7 +91,7 @@ class HeaderAnalyzer(BaseScanner):
     async def execute(self) -> HeaderResult:
         print(f"[*] HeaderAnalyzer: Fetching and analyzing security headers for {self.target}...")
 
-        result = HeaderResult(self.target)
+        result = HeaderResult(target_domain=self.target)
         client  = AsyncClient(timeout=10, proxy=self.proxy)
 
         if self.delay > 0:
@@ -113,6 +104,7 @@ class HeaderAnalyzer(BaseScanner):
 
             if status not in (0, 408) and headers is not None:
                 result.url_scanned = url
+                result.reachable = True
                 break
         else:
             print(f"[-] HeaderAnalyzer: Could not reach {self.target}.")
@@ -133,7 +125,9 @@ class HeaderAnalyzer(BaseScanner):
             matched_key = next((k for k in raw_headers if k.lower() == header_name.lower()), None)
 
             risk_weight = {"HIGH": 20, "MEDIUM": 10, "LOW": 5}.get(meta["risk"], 5)
-            max_score += risk_weight
+            required = meta.get("required", True)
+            if required:
+                max_score += risk_weight
 
             if matched_key:
                 value = raw_headers[matched_key]
@@ -142,13 +136,13 @@ class HeaderAnalyzer(BaseScanner):
                 # Check if the value is correct
                 try:
                     if meta["check"](value):
-                        found_score += risk_weight
+                        found_score += risk_weight if required else 0
                     else:
                         result.misconfigured_headers[header_name] = value
-                        found_score += risk_weight // 2  # Partial credit
+                        found_score += risk_weight // 2 if required else 0  # Partial credit
                 except Exception:
                     pass
-            else:
+            elif required:
                 result.missing_headers[header_name] = meta
 
         # --- Detect information disclosure headers ---
@@ -182,7 +176,7 @@ class HeaderAnalyzer(BaseScanner):
             result.grade = "F"
 
         print(
-            f"[+] HeaderAnalyzer: Analysis complete. "
+            "[+] HeaderAnalyzer: Analysis complete. "
             f"Grade: {result.grade} ({result.security_score}/100). "
             f"Missing: {len(result.missing_headers)}, Leaking: {len(result.info_leak_headers)}"
         )

@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from typing import List
 
+# Every scanner returns one of these. They are the single source of truth
+# for result shapes — the engine renders them by class name.
+
 @dataclass
 class SubdomainResult:
     target_domain: str
@@ -16,8 +19,10 @@ class WafResult:
 @dataclass
 class GithubResult:
     target_domain: str
-    leaks_found: int
-    sample_urls: List[str]
+    leaks_found: int = 0
+    sample_urls: List[str] = field(default_factory=list)
+    total_hits: int = 0
+    skipped_reason: str = ""
 
 @dataclass
 class TechResult:
@@ -36,6 +41,7 @@ class SSLResult:
     issuer: str
     days_until_expiry: int
     subject_alt_names: List[str]
+    error: str = ""
 
 @dataclass
 class DirResult:
@@ -45,20 +51,26 @@ class DirResult:
 @dataclass
 class DnsResult:
     target_domain: str
-    a_records: List[str]
-    mx_records: List[str]
-    ns_records: List[str]
-    txt_records: List[str]
-    cname_records: List[str]
-    is_spoofable: bool
-    has_dmarc: bool
-    dmarc_policy: str
-    has_dkim: bool
-    dkim_selector: str
-    zone_transfer_vulnerable: bool
-    zone_transfer_data: List[str]
-    vulnerabilities: List[str]
-    info: List[str]
+    a_records: List[str] = field(default_factory=list)
+    mx_records: List[str] = field(default_factory=list)
+    ns_records: List[str] = field(default_factory=list)
+    txt_records: List[str] = field(default_factory=list)
+    cname_records: List[str] = field(default_factory=list)
+    caa_records: List[str] = field(default_factory=list)
+    # Security posture. A check that could not be performed stays False in
+    # its *_checked flag and is never reported as a vulnerability.
+    spf_checked: bool = False
+    is_spoofable: bool = False
+    dmarc_checked: bool = False
+    has_dmarc: bool = False
+    dmarc_policy: str = "none"
+    has_dkim: bool = False
+    dkim_selector: str = ""
+    zone_transfer_checked: bool = False
+    zone_transfer_vulnerable: bool = False
+    zone_transfer_data: List[str] = field(default_factory=list)
+    vulnerabilities: List[str] = field(default_factory=list)
+    info: List[str] = field(default_factory=list)
 
 @dataclass
 class EmailResult:
@@ -75,6 +87,7 @@ class ArchiveResult:
 class TakeoverResult:
     target_domain: str
     vulnerable_subdomains: List[str]
+    checked_cnames: int = 0
 
 @dataclass
 class JsResult:
@@ -107,30 +120,33 @@ class CloudResult:
 @dataclass
 class BreachResult:
     target_domain: str
-    total_leaks: int
+    total_leaks: int = 0
     breaches_found: List[str] = field(default_factory=list)
+    lookup_ok: bool = False
+    error: str = ""
 
 @dataclass
 class ShodanResult:
     target_domain: str
-    ip_address: str
-    organization: str
-    country: str
-    isp: str
-    asn: str
-    open_ports: List[str]
-    banners: List[str]
-    vulns: List[str]
-    hostnames: List[str]
-    os: str
-    tags: List[str]
+    ip_address: str = "Unknown"
+    organization: str = "Unknown"
+    country: str = "Unknown"
+    isp: str = "Unknown"
+    asn: str = "Unknown"
+    open_ports: List[int] = field(default_factory=list)
+    banners: List[str] = field(default_factory=list)
+    vulns: List[str] = field(default_factory=list)
+    hostnames: List[str] = field(default_factory=list)
+    os: str = "Unknown"
+    tags: List[str] = field(default_factory=list)
 
 @dataclass
 class HeaderResult:
     target_domain: str
-    url_scanned: str
-    security_score: int
-    grade: str
+    url_scanned: str = ""
+    reachable: bool = False
+    security_score: int = 0
+    grade: str = "F"
     present_headers: dict = field(default_factory=dict)
     missing_headers: dict = field(default_factory=dict)
     misconfigured_headers: dict = field(default_factory=dict)
@@ -139,18 +155,20 @@ class HeaderResult:
 @dataclass
 class WhoisResult:
     target_domain: str
-    registrar: str
-    registrant_org: str
-    registrant_country: str
-    creation_date: str
-    expiry_date: str
-    updated_date: str
-    name_servers: List[str]
-    status: List[str]
-    dnssec: str
-    is_expired: bool
-    is_expiring_soon: bool
-    privacy_protected: bool
+    registrar: str = "Unknown"
+    registrant_org: str = "Unknown"
+    registrant_country: str = "Unknown"
+    creation_date: str = "Unknown"
+    expiry_date: str = "Unknown"
+    updated_date: str = "Unknown"
+    name_servers: List[str] = field(default_factory=list)
+    status: List[str] = field(default_factory=list)
+    dnssec: str = "Unknown"
+    is_expired: bool = False
+    is_expiring_soon: bool = False
+    privacy_protected: bool = False
+    source: str = ""
+    raw_whois: str = ""
 
 @dataclass
 class CdnBypassResult:
@@ -162,6 +180,7 @@ class CdnBypassResult:
     mx_ip: str
     mx_ip_differs: bool
     candidate_origin_ips: List[str] = field(default_factory=list)
+    cdn_edge_ips: List[str] = field(default_factory=list)
     confirmed_origin_ip: str = ""
     confirmed_via: str = ""
 

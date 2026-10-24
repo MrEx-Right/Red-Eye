@@ -1,57 +1,58 @@
-import aiohttp
 import asyncio
+from core.base import BaseScanner
+from models.report import BreachResult
+from utils.client import AsyncClient
 
-# A lightweight structure to hold our breach data
-class BreachResult:
-    def __init__(self, target_domain):
-        self.target_domain = target_domain
-        self.breaches_found = []
-        self.total_leaks = 0
+class BreachScanner(BaseScanner):
+    """
+    Breach & Leak Intelligence. Queries Have I Been Pwned's public breach
+    catalogue (no API key needed) for breaches of services hosted on the
+    target's domain. A failed lookup is reported as such — never as "clean".
+    """
 
-class BreachScanner:
-    def __init__(self, target, stealth, proxy, delay, wordlist):
-        self.target = target
-        self.stealth = stealth
-        self.proxy = proxy
-        self.delay = delay
-        
-        # Define the target API endpoint for leak intelligence
-        # You can swap this with IntelligenceX, HaveIBeenPwned, or Leak-Lookup APIs
-        self.api_url = f"https://api.leak-lookup.com/v2/search?domain={self.target}"
+    HIBP_URL = "https://haveibeenpwned.com/api/v3/breaches?domain={domain}"
 
-    async def execute(self):
-        """
-        Executes the breach intelligence gathering asynchronously.
-        Returns a BreachResult object containing discovered leaks.
-        """
-        result = BreachResult(self.target)
-        
+    async def execute(self) -> BreachResult:
+        domain = self.zone
+        print(f"[*] BreachScanner: Checking public breach records for {domain}...")
+
+        result = BreachResult(target_domain=domain)
+
         # Enforce stealth mode delays if configured
         if self.delay > 0:
             await asyncio.sleep(self.delay)
 
-        try:
-            # Initialize an asynchronous HTTP session for maximum throughput
-            async with aiohttp.ClientSession() as session:
-                # Dispatch the request to the threat intel provider
-                async with session.get(self.api_url, proxy=self.proxy, timeout=15) as response:
-                    
-                    if response.status == 200:
-                        data = await response.json()
-                        
-                        # Parse the intelligence data (adjust based on the specific API response)
-                        # Example parsing logic for a generic leak API
-                        if "leaks" in data and isinstance(data["leaks"], list):
-                            for leak in data["leaks"][:10]: # Cap at 10 to avoid terminal flood
-                                source = leak.get("source_name", "Unknown DB")
-                                date = leak.get("date", "Unknown Date")
-                                result.breaches_found.append(f"{source} ({date})")
-                                
-                        result.total_leaks = len(result.breaches_found)
-                        
-        except Exception as e:
-            # Catch all exceptions to prevent the scanner engine from crashing
-            # We fail silently as per OSINT module best practices
-            pass
-            
+        client = AsyncClient(timeout=15, proxy=self.proxy)
+        # HIBP requires a descriptive User-Agent and rejects generic ones
+        status, data, _ = await client.fetch(
+            self.HIBP_URL.format(domain=domain),
+            headers={"User-Agent": "RedEye-OSINT-Framework"},
+            return_type="json"
+        )
+
+        if status == 200 and isinstance(data, list):
+            result.lookup_ok = True
+            breaches = sorted(data, key=lambda b: b.get("BreachDate", ""), reverse=True)
+            for breach in breaches[:10]:  # Cap at 10 to avoid terminal flood
+                title = breach.get("Title") or breach.get("Name", "Unknown DB")
+                date = breach.get("BreachDate", "Unknown Date")
+                pwned = breach.get("PwnCount")
+                classes = ", ".join(breach.get("DataClasses", [])[:4])
+                line = f"{title} ({date})"
+                if isinstance(pwned, int):
+                    line += f" — {pwned:,} accounts"
+                if classes:
+                    line += f" [{classes}]"
+                result.breaches_found.append(line)
+            result.total_leaks = len(data)
+        else:
+            result.error = f"HIBP lookup failed (HTTP {status})" if status else "HIBP unreachable"
+
+        if not result.lookup_ok:
+            print(f"[!] BreachScanner: {result.error}")
+        elif result.total_leaks:
+            print(f"[+] BreachScanner: {result.total_leaks} public breach(es) recorded for {domain}.")
+        else:
+            print(f"[-] BreachScanner: No public breaches recorded for {domain}.")
+
         return result

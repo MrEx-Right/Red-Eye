@@ -1,33 +1,37 @@
 import asyncio
 import re
+from datetime import datetime, timezone
 from typing import Optional
 from core.base import BaseScanner
-from utils.client import AsyncClient
+from models.report import WhoisResult
+from utils.client import AsyncClient, hackertarget_failed
 
 
-class WhoisResult:
-    """Holds WHOIS intelligence data for a target domain."""
-    def __init__(self, target_domain: str):
-        self.target_domain = target_domain
-        self.registrar: str = "Unknown"
-        self.registrant_org: str = "Unknown"
-        self.registrant_country: str = "Unknown"
-        self.creation_date: str = "Unknown"
-        self.expiry_date: str = "Unknown"
-        self.updated_date: str = "Unknown"
-        self.name_servers: list = []
-        self.status: list = []
-        self.dnssec: str = "Unknown"
-        self.is_expired: bool = False
-        self.is_expiring_soon: bool = False  # < 30 days
-        self.privacy_protected: bool = False
-        self.raw_whois: str = ""
+def parse_date(value: str) -> Optional[datetime]:
+    """Parses the date formats registries actually use into an aware UTC datetime."""
+    value = value.strip()
+    if not value or value == "Unknown":
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        parsed = None
+        for fmt in ("%Y-%m-%d", "%d-%b-%Y", "%Y.%m.%d", "%d.%m.%Y", "%Y/%m/%d"):
+            try:
+                parsed = datetime.strptime(value[:11].strip(), fmt)
+                break
+            except ValueError:
+                continue
+    if parsed is None:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 class WhoisScanner(BaseScanner):
     """
     WHOIS Intelligence Scanner — retrieves domain registration metadata
-    using the WhoisXML API (free tier) and HackerTarget WHOIS as fallback.
+    from RDAP (the structured successor of WHOIS, via rdap.org) with the
+    HackerTarget text WHOIS as fallback. No API key required.
 
     Extracts:
     - Registrar, registrant org/country
@@ -39,18 +43,18 @@ class WhoisScanner(BaseScanner):
     - Expiry warnings (domain expiring within 30 days)
     """
 
-    # HackerTarget offers free WHOIS lookups — no API key required
+    RDAP_URL = "https://rdap.org/domain/{domain}"
     HACKERTARGET_URL = "https://api.hackertarget.com/whois/?q={domain}"
 
-    # Field patterns to extract from raw WHOIS text
+    # Field patterns to extract from raw WHOIS text (anchored to line starts)
     FIELD_PATTERNS = {
-        "registrar":          r"(?:Registrar|registrar):\s*(.+)",
-        "registrant_org":     r"(?:Registrant Organization|org):\s*(.+)",
-        "registrant_country": r"(?:Registrant Country|country):\s*(.+)",
-        "creation_date":      r"(?:Creation Date|created):\s*(.+)",
-        "expiry_date":        r"(?:Registry Expiry Date|Expiry Date|expires):\s*(.+)",
-        "updated_date":       r"(?:Updated Date|last-modified):\s*(.+)",
-        "dnssec":             r"DNSSEC:\s*(.+)",
+        "registrar":          r"^\s*(?:Registrar|Sponsoring Registrar|registrar):\s*(.+)$",
+        "registrant_org":     r"^\s*(?:Registrant Organization|org):\s*(.+)$",
+        "registrant_country": r"^\s*(?:Registrant Country|country):\s*(.+)$",
+        "creation_date":      r"^\s*(?:Creation Date|created):\s*(.+)$",
+        "expiry_date":        r"^\s*(?:Registry Expiry Date|Registrar Registration Expiration Date|Expiry Date|expires):\s*(.+)$",
+        "updated_date":       r"^\s*(?:Updated Date|last-modified):\s*(.+)$",
+        "dnssec":             r"^\s*DNSSEC:\s*(.+)$",
     }
 
     PRIVACY_KEYWORDS = [
@@ -58,105 +62,107 @@ class WhoisScanner(BaseScanner):
         "perfect privacy", "withheld", "data protected"
     ]
 
+    def _evaluate_expiry(self, result: WhoisResult) -> None:
+        expiry = parse_date(result.expiry_date)
+        if expiry is None:
+            return
+        days_left = (expiry - datetime.now(timezone.utc)).days
+        result.is_expired = days_left < 0
+        result.is_expiring_soon = 0 <= days_left <= 30
+
     def _parse_whois(self, raw: str, result: WhoisResult) -> None:
         """Parse raw WHOIS text into structured fields."""
         result.raw_whois = raw
 
-        for field, pattern in self.FIELD_PATTERNS.items():
-            match = re.search(pattern, raw, re.IGNORECASE)
+        for field_name, pattern in self.FIELD_PATTERNS.items():
+            match = re.search(pattern, raw, re.IGNORECASE | re.MULTILINE)
             if match:
-                value = match.group(1).strip()
-                setattr(result, field, value)
+                setattr(result, field_name, match.group(1).strip())
 
         # Name servers — can appear multiple times
-        ns_matches = re.findall(r"(?:Name Server|nserver):\s*(.+)", raw, re.IGNORECASE)
-        result.name_servers = list({ns.strip().lower() for ns in ns_matches if ns.strip()})
+        ns_matches = re.findall(r"^\s*(?:Name Server|nserver):\s*(.+)$", raw, re.IGNORECASE | re.MULTILINE)
+        result.name_servers = sorted({ns.strip().lower() for ns in ns_matches if ns.strip()})
 
         # Domain status flags
-        status_matches = re.findall(r"(?:Domain Status|status):\s*(.+)", raw, re.IGNORECASE)
-        result.status = [s.strip() for s in status_matches if s.strip()]
+        status_matches = re.findall(r"^\s*(?:Domain Status|status):\s*(.+)$", raw, re.IGNORECASE | re.MULTILINE)
+        result.status = list(dict.fromkeys(s.strip().split(" ")[0] for s in status_matches if s.strip()))
 
         # Privacy protection detection
         raw_lower = raw.lower()
         result.privacy_protected = any(kw in raw_lower for kw in self.PRIVACY_KEYWORDS)
 
-        # Expiry checks
-        if result.expiry_date and result.expiry_date != "Unknown":
-            try:
-                from datetime import datetime, timezone
-                # Handle multiple date formats
-                for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d", "%d-%b-%Y", "%Y-%m-%dT%H:%M:%S.%fZ"):
-                    try:
-                        expiry_dt = datetime.strptime(result.expiry_date[:25].strip(), fmt)
-                        now = datetime.utcnow()
-                        days_left = (expiry_dt - now).days
-                        if days_left < 0:
-                            result.is_expired = True
-                        elif days_left <= 30:
-                            result.is_expiring_soon = True
-                        break
-                    except ValueError:
-                        continue
-            except Exception:
-                pass
+    @staticmethod
+    def _vcard_value(entity: dict, prop: str):
+        vcard = entity.get("vcardArray") or []
+        if len(vcard) < 2 or not isinstance(vcard[1], list):
+            return None
+        for item in vcard[1]:
+            if isinstance(item, list) and len(item) >= 4 and item[0] == prop:
+                return item[3]
+        return None
+
+    def _parse_rdap(self, data: dict, result: WhoisResult) -> None:
+        for event in data.get("events", []):
+            action = event.get("eventAction", "")
+            date = event.get("eventDate", "")
+            if action == "registration":
+                result.creation_date = date
+            elif action == "expiration":
+                result.expiry_date = date
+            elif action == "last changed":
+                result.updated_date = date
+
+        result.name_servers = sorted({ns.get("ldhName", "").lower() for ns in data.get("nameservers", []) if ns.get("ldhName")})
+        result.status = list(data.get("status", []))
+        result.dnssec = "signedDelegation" if data.get("secureDNS", {}).get("delegationSigned") else "unsigned"
+
+        for entity in data.get("entities", []):
+            roles = entity.get("roles", [])
+            if "registrar" in roles:
+                result.registrar = self._vcard_value(entity, "fn") or result.registrar
+            if "registrant" in roles:
+                org = self._vcard_value(entity, "org") or self._vcard_value(entity, "fn")
+                if org:
+                    result.registrant_org = org if isinstance(org, str) else str(org)
+                adr = self._vcard_value(entity, "adr")
+                if isinstance(adr, list) and adr and adr[-1]:
+                    result.registrant_country = str(adr[-1])
+
+        blob = str(data).lower()
+        result.privacy_protected = any(kw in blob for kw in self.PRIVACY_KEYWORDS)
 
     async def execute(self) -> WhoisResult:
-        print(f"[*] WhoisScanner: Querying WHOIS intelligence for {self.target}...")
+        domain = self.zone
+        print(f"[*] WhoisScanner: Querying WHOIS intelligence for {domain}...")
 
-        result = WhoisResult(self.target)
+        result = WhoisResult(target_domain=domain)
         client = AsyncClient(timeout=15, proxy=self.proxy)
 
         if self.delay > 0:
             await asyncio.sleep(self.delay)
 
-        # Primary source: HackerTarget WHOIS (free, no key)
-        url = self.HACKERTARGET_URL.format(domain=self.target)
-        status, data, _ = await client.fetch(url, return_type="text")
+        # Primary source: RDAP — structured JSON, no quota
+        r_status, r_data, _ = await client.fetch(self.RDAP_URL.format(domain=domain), return_type="json")
+        if r_status == 200 and isinstance(r_data, dict) and r_data.get("objectClassName") == "domain":
+            self._parse_rdap(r_data, result)
+            result.source = "RDAP (rdap.org)"
+        else:
+            # Fallback: HackerTarget text WHOIS (free, rate limited)
+            print(f"[*] WhoisScanner: RDAP failed (status {r_status}), trying HackerTarget fallback...")
+            status, data, _ = await client.fetch(self.HACKERTARGET_URL.format(domain=domain), return_type="text")
+            if status == 200 and not hackertarget_failed(data):
+                self._parse_whois(data, result)
+                result.source = "WHOIS (HackerTarget)"
 
-        if status == 200 and data and "error" not in data.lower()[:50]:
-            self._parse_whois(data, result)
+        if result.source:
+            self._evaluate_expiry(result)
             print(
-                f"[+] WhoisScanner: WHOIS data retrieved. "
+                f"[+] WhoisScanner: {result.source} data retrieved. "
                 f"Registrar: {result.registrar}, "
                 f"Expires: {result.expiry_date}, "
                 f"Privacy: {result.privacy_protected}"
             )
         else:
-            # Fallback: rdap.org provides RDAP (modern WHOIS) as JSON — no key needed
-            print(f"[*] WhoisScanner: HackerTarget failed (status {status}), trying RDAP fallback...")
-            rdap_url = f"https://rdap.org/domain/{self.target}"
-            r_status, r_data, _ = await client.fetch(rdap_url, return_type="json")
-
-            if r_status == 200 and isinstance(r_data, dict):
-                # Parse RDAP response
-                result.registrar = r_data.get("registrarName", "Unknown")
-                result.dnssec    = "signedDelegation" if r_data.get("secureDNS", {}).get("delegationSigned") else "unsigned"
-
-                for event in r_data.get("events", []):
-                    action = event.get("eventAction", "")
-                    date   = event.get("eventDate", "")[:10]
-                    if action == "registration":
-                        result.creation_date = date
-                    elif action == "expiration":
-                        result.expiry_date = date
-                    elif action == "last changed":
-                        result.updated_date = date
-
-                for ns in r_data.get("nameservers", []):
-                    result.name_servers.append(ns.get("ldhName", "").lower())
-
-                for entity in r_data.get("entities", []):
-                    for vcard in entity.get("vcardArray", [[]]):
-                        for item in (vcard if isinstance(vcard, list) else []):
-                            if isinstance(item, list) and item[0] == "org":
-                                result.registrant_org = item[-1]
-                            if isinstance(item, list) and item[0] == "adr":
-                                addr = item[-1]
-                                if isinstance(addr, list) and len(addr) >= 6:
-                                    result.registrant_country = addr[-1]
-
-                print(f"[+] WhoisScanner: RDAP data retrieved for {self.target}.")
-            else:
-                print(f"[-] WhoisScanner: All sources failed for {self.target}.")
+            print(f"[-] WhoisScanner: All sources failed for {domain}.")
 
         return result

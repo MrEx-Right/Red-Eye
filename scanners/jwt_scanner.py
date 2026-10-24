@@ -9,13 +9,18 @@ from urllib.parse import urljoin
 from core.base import BaseScanner
 from models.report import JwtResult
 from utils.client import AsyncClient
+from utils.domain import base_name
 
 JWT_PATTERN = re.compile(r'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*')
 
-SENSITIVE_CLAIM_KEYS = (
-    "role", "admin", "is_admin", "permissions", "internal",
-    "password", "secret", "ssn"
-)
+# Claims that should never travel inside a readable token payload
+SECRET_CLAIM_KEYS = ("password", "passwd", "secret", "ssn", "api_key", "apikey", "private_key", "credit_card")
+
+# Claims that are normal in JWTs but tell an attacker what to tamper with
+PRIVILEGE_CLAIM_KEYS = ("role", "admin", "is_admin", "permissions", "internal", "scope", "groups")
+
+# Symmetric algorithms that can be cracked offline with a wordlist
+HMAC_ALGORITHMS = {"HS256": hashlib.sha256, "HS384": hashlib.sha384, "HS512": hashlib.sha512}
 
 # Small, built-in list of extremely common weak HS256 signing secrets.
 WEAK_SECRETS = ["secret", "123456", "password", "jwt_secret", "changeme", "admin"]
@@ -26,7 +31,7 @@ class JwtDecoder(BaseScanner):
     Crawls the target's frontend JS files (and the main page's cookies) for
     embedded JWTs, decodes their header/payload, and flags common
     misconfigurations: alg:none, expired tokens, sensitive claims exposed
-    in the payload, and HS256 tokens signed with a common weak secret.
+    in the payload, and HMAC tokens signed with a common weak secret.
     """
 
     def _b64url_decode(self, segment: str) -> bytes:
@@ -44,13 +49,17 @@ class JwtDecoder(BaseScanner):
             payload = json.loads(self._b64url_decode(payload_b64))
         except Exception:
             return {}
+        if not isinstance(header, dict) or not isinstance(payload, dict):
+            return {}
 
         entry = {
-            "token_preview": token[:20] + "...",
+            # Head + tail: every HS256 token starts with the same header bytes
+            "token_preview": f"{token[:10]}...{token[-8:]}",
             "alg": str(header.get("alg", "Unknown")),
             "alg_none": False,
             "expired": False,
             "sensitive_claims": [],
+            "privilege_claims": [],
             "cracked_secret": ""
         }
         entry["alg_none"] = entry["alg"].strip().lower() == "none"
@@ -60,12 +69,16 @@ class JwtDecoder(BaseScanner):
             entry["expired"] = datetime.now(timezone.utc).timestamp() > exp
 
         for key in payload:
-            if any(sensitive in key.lower() for sensitive in SENSITIVE_CLAIM_KEYS):
+            lowered = str(key).lower()
+            if any(sensitive in lowered for sensitive in SECRET_CLAIM_KEYS):
                 entry["sensitive_claims"].append(key)
+            elif any(privileged in lowered for privileged in PRIVILEGE_CLAIM_KEYS):
+                entry["privilege_claims"].append(key)
 
-        # Only symmetric HS256 signatures can be feasibly cracked with a
+        # Only symmetric HMAC signatures can be feasibly cracked with a
         # small offline wordlist — RS/ES/PS algorithms need the private key.
-        if entry["alg"].upper() == "HS256":
+        digest = HMAC_ALGORITHMS.get(entry["alg"].upper())
+        if digest:
             signing_input = f"{header_b64}.{payload_b64}".encode()
             try:
                 target_sig = self._b64url_decode(signature_b64)
@@ -73,9 +86,9 @@ class JwtDecoder(BaseScanner):
                 target_sig = b""
 
             if target_sig:
-                candidates = WEAK_SECRETS + [self.target, self.target.split(".")[0]]
+                candidates = WEAK_SECRETS + [self.host, base_name(self.host)]
                 for secret in candidates:
-                    computed = hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
+                    computed = hmac.new(secret.encode(), signing_input, digest).digest()
                     if hmac.compare_digest(computed, target_sig):
                         entry["cracked_secret"] = secret
                         break
@@ -83,9 +96,13 @@ class JwtDecoder(BaseScanner):
         return entry
 
     async def execute(self) -> JwtResult:
+        # One pooled session for the index page and every JS file
+        async with AsyncClient(timeout=10, proxy=self.proxy) as client:
+            return await self._scan(client)
+
+    async def _scan(self, client: AsyncClient) -> JwtResult:
         print(f"[*] JwtDecoder: Hunting for embedded JWTs on {self.target}...")
 
-        client = AsyncClient(timeout=10, proxy=self.proxy)
         base_url = f"https://{self.target}"
 
         # 1. Fetch the main page (also gives us Set-Cookie headers for free)
@@ -125,7 +142,7 @@ class JwtDecoder(BaseScanner):
                 async with semaphore:
                     if self.delay > 0:
                         await asyncio.sleep(self.delay)
-                    js_status, js_content, _ = await client.fetch(js_url, return_type="text")
+                    js_status, js_content, _ = await client.fetch(js_url, return_type="text", max_bytes=10_000_000)
                     if js_status == 200 and js_content:
                         found_tokens.update(JWT_PATTERN.findall(js_content))
 
@@ -136,7 +153,7 @@ class JwtDecoder(BaseScanner):
         decoded_tokens = []
         vulnerabilities = []
 
-        for token in found_tokens:
+        for token in sorted(found_tokens):
             entry = self._decode_token(token)
             if not entry:
                 continue
@@ -145,14 +162,14 @@ class JwtDecoder(BaseScanner):
             if entry["alg_none"]:
                 vulnerabilities.append(f"CRITICAL - Token {entry['token_preview']} uses alg:none — signature bypass possible.")
             if entry["cracked_secret"]:
-                vulnerabilities.append(f"CRITICAL - Token {entry['token_preview']} signed with weak HS256 secret: '{entry['cracked_secret']}'")
+                vulnerabilities.append(f"CRITICAL - Token {entry['token_preview']} signed with weak {entry['alg']} secret: '{entry['cracked_secret']}'")
             if entry["sensitive_claims"]:
                 vulnerabilities.append(f"VULNERABLE - Token {entry['token_preview']} exposes sensitive claims: {', '.join(entry['sensitive_claims'])}")
 
         if decoded_tokens:
             print(f"[+] JwtDecoder: Found {len(decoded_tokens)} JWT(s), {len(vulnerabilities)} issue(s) flagged.")
         else:
-            print(f"[-] JwtDecoder: No JWTs found in JS files or cookies.")
+            print("[-] JwtDecoder: No JWTs found in JS files or cookies.")
 
         return JwtResult(
             target_domain=self.target,

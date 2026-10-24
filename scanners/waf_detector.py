@@ -3,6 +3,7 @@ import re
 import sys
 from core.base import BaseScanner
 from models.report import WafResult
+from utils.client import AsyncClient
 
 class WafDetector(BaseScanner):
     """
@@ -12,8 +13,9 @@ class WafDetector(BaseScanner):
     async def execute(self) -> WafResult:
         print(f"[*] WafDetector: Running wafw00f for {self.target}...")
 
-        url = f"https://{self.target}"
-        
+        # wafw00f does not fall back to plain HTTP on its own
+        url = await AsyncClient(timeout=8, proxy=self.proxy).detect_base_url(self.target) or f"https://{self.target}"
+
         args = [url, "-a", "--no-colors", "-T", "15"]
         if self.proxy:
             args.extend(["-p", self.proxy])
@@ -23,7 +25,7 @@ class WafDetector(BaseScanner):
         if has_waf:
             print(f"[+] WafDetector: Target is behind {detected_waf}.")
         elif detected_waf == "None":
-            print(f"[-] WafDetector: No WAF detected.")
+            print("[-] WafDetector: No WAF detected.")
         elif "Error" in detected_waf or "Timeout" in detected_waf:
             print(f"[!] WafDetector: {detected_waf}")
 

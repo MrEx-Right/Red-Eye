@@ -14,14 +14,15 @@ class SmScanner(BaseScanner):
     without requiring any API keys.
     """
     async def execute(self) -> SmResult:
-        print(f"[*] SmScanner: Dorking the deep web for {self.target} mentions...")
+        print(f"[*] SmScanner: Dorking the deep web for {self.host} mentions...")
 
+        # platform -> domains whose result URLs count as a mention
         platforms = {
-            "Twitter": "site:twitter.com",
-            "LinkedIn": "site:linkedin.com",
-            "Pastebin": "site:pastebin.com",
-            "Trello": "site:trello.com",
-            "Medium": "site:medium.com"
+            "Twitter": ("twitter.com", "x.com"),
+            "LinkedIn": ("linkedin.com",),
+            "Pastebin": ("pastebin.com",),
+            "Trello": ("trello.com",),
+            "Medium": ("medium.com",),
         }
 
         client = AsyncClient(timeout=15, proxy=self.proxy)
@@ -33,14 +34,15 @@ class SmScanner(BaseScanner):
         # Regex to extract duckduckgo redirect URLs from the raw HTML
         url_pattern = re.compile(r'uddg=([^&]+)')
 
-        async def dork_platform(platform_name: str, dork_base: str):
+        async def dork_platform(platform_name: str, domains: tuple):
             async with semaphore:
                 if self.delay > 0:
                     await asyncio.sleep(self.delay)
                 elif self.stealth:
                     await asyncio.sleep(2.0)
 
-                query = f'{dork_base} "{self.target}"'
+                dork_base = " OR ".join(f"site:{d}" for d in domains)
+                query = f'{dork_base} "{self.host}"'
                 safe_query = urllib.parse.quote(query)
                 
                 # Using DuckDuckGo Lite for easy HTML parsing without JS rendering
@@ -60,11 +62,12 @@ class SmScanner(BaseScanner):
                     for match in matches:
                         clean_url = urllib.parse.unquote(match)
                         # Filter out duckduckgo self-redirects and ensure it's related to the platform
-                        if "duckduckgo.com" not in clean_url and platform_name.lower() in clean_url.lower():
+                        url_host = urllib.parse.urlsplit(clean_url).hostname or ""
+                        if any(url_host == d or url_host.endswith(f".{d}") for d in domains):
                              if clean_url not in found_mentions[platform_name]:
                                  found_mentions[platform_name].append(clean_url)
 
-        tasks = [dork_platform(name, dork) for name, dork in platforms.items()]
+        tasks = [dork_platform(name, domains) for name, domains in platforms.items()]
         await asyncio.gather(*tasks)
 
         total_found = sum(len(urls) for urls in found_mentions.values())
@@ -72,12 +75,12 @@ class SmScanner(BaseScanner):
         if total_found > 0:
             print(f"[+] SmScanner: Uncovered {total_found} external mentions across {len(found_mentions)} platforms.")
         else:
-            print(f"[-] SmScanner: Target maintains a ghost profile. No significant mentions found.")
+            print("[-] SmScanner: Target maintains a ghost profile. No significant mentions found.")
 
         # Limit to top 5 results per platform for the report object to keep it clean
         report_data = {k: v[:5] for k, v in found_mentions.items() if v}
 
         return SmResult(
-            target_domain=self.target,
+            target_domain=self.host,
             platform_mentions=report_data
         )

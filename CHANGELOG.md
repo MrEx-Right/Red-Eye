@@ -2,6 +2,41 @@
 
 All notable changes to the **Red Eye** project will be documented in this file.
 
+## [1.7.0] - 2026-10-24
+
+New terminal interface and logo, plus a reliability pass after a full audit. Many modules were silently reporting wrong results; every fix below is covered by the new offline test suite (`python -m unittest`).
+
+### Fixed
+- **Report crash on hostile scan data**: Target-controlled text (e.g. a robots.txt line `Disallow: /search[/q]`) was parsed as Rich markup, crashing the engine before the `-o` report was written. Bracketed data (`[i]` notes, `[eyJ...]` JWT previews) also silently vanished. Results are now rendered as literal text and the report is saved even if a panel fails to render.
+- **DNS module false positives on every domain**: HackerTarget's `TYPE : value` output was mis-parsed (no record was ever read, so SPF was always "missing"), the refused-AXFR transcript (`; Transfer failed.`) was flagged as an open zone transfer, and `_dmarc` / `_domainkey` lookups were rejected by the API. Records now come from DNS-over-HTTPS (Cloudflare, Google fallback), AXFR transcripts are parsed for real resource records, and checks that cannot run are shown as *Unknown* instead of *Vulnerable*.
+- **Binary backups never detected**: The HTTP client decoded every body strictly as text; `.zip`, `.tar.gz`, `.7z` and other binary files raised a decode error and were treated as unreachable. Bodies are now decoded leniently and probes read only the first bytes.
+- **Soft-404 false positives**: `dir` and `backup` reported every path on catch-all sites (184/184 "CRITICAL" backups in testing). Both now calibrate against random paths first (`utils/soft404.py`); `dir` no longer follows redirects, so `/admin -> /login` is reported as a redirect instead of a 200.
+- **`-g/--github-token` was never used**: The token was parsed but not passed to any scanner, and anonymous GitHub code search returns 401 — the module always reported "no leaks". The token is now wired through and the module states clearly when it was skipped.
+- **Breach module always "Clean"**: Its Leak-Lookup endpoint returned 404 and the error was swallowed. It now queries Have I Been Pwned's public breach catalogue and reports failed lookups as failures.
+- **False "BYPASS CONFIRMED" in the origin finder**: Other CDN edge IPs (e.g. a second Cloudflare anycast IP) passed the TLS check. Candidates in Cloudflare ranges are discarded and every candidate must also answer without CDN headers.
+- **Proxy leaks**: `subdomain` and `github` ignored `-x`, and `port`/`ssl`/`origin` open raw sockets. All HTTP traffic now uses the proxy; raw-socket modules are skipped in proxy mode unless requested with `-m`. SOCKS proxy URLs are rejected with a clear message (aiohttp does not support them).
+- **HTTPS-only modules**: `dir`, `robots`, `cloud` and `backup` now fall back to plain HTTP.
+- **Target normalisation**: Paths, query strings, credentials and default ports are stripped; custom ports are kept for web modules; invalid hosts are rejected. Zone-level checks (DNS, subdomains, takeover, WHOIS, breach, GitHub) run against the registered domain, so `www.example.com` no longer reports the apex's SPF/DMARC as missing.
+- **WHOIS**: RDAP is now the primary source (the old parser read a `registrarName` key that RDAP does not have); expiry warnings work for RDAP data; HackerTarget quota messages are no longer parsed as WHOIS text.
+- **Subdomain takeover**: Only subdomains whose CNAME points at a known service are fingerprinted, against that service's own signature, plus NXDOMAIN detection for claimable services. Previously generic page text like "No such app" was enough.
+- **Cloud/S3**: Bucket guesses use the organisation name (`acme` from `www.acme.co.uk`, not `www`); a 403 is reported as "exists, ownership unverified" and only a real `ListBucketResult` is CRITICAL. The `Google Frontend` server header is now recognised.
+- **Tech analyzer**: BuiltWith no longer opens its own timeout-less connection (which could hang shutdown); the page is fetched by the async client and handed to BuiltWith.
+- **DKIM**: Empty `p=` (revoked) keys and wildcard `_domainkey` records are no longer reported as a configured selector. A missing DKIM selector is now a note, not a vulnerability.
+- **Misc**: `-d` shows under "Performance & Stealth"; UDP-only ports removed from the TCP scan; HMAC JWTs (HS384/HS512) are cracked too and previews are distinguishable; `X-XSS-Protection` follows current OWASP advice (`0` or absent); unreachable hosts no longer get an "F" header grade; Python 3.8 claim corrected (3.9+ is required).
+
+### Added
+- `--shodan-key` flag (documented since 1.5.0 but never implemented).
+- Full lists (emails, archive URLs, takeover candidates, SSL SANs, subdomains) in the `-o` report; the terminal shows a preview.
+- `utils/dns.py` (DNS-over-HTTPS), `utils/soft404.py`, `utils/domain.py`, `utils/cdn.py`, pooled `AsyncClient` sessions.
+- Offline test suite under `tests/`.
+
+### Changed
+- **New terminal interface (`utils/ui.py`)**: A live dashboard replaces the single spinner — every module gets a row with its status, run time and a one-line result as it finishes. The scan ends with a summary table and a **Findings** panel that ranks critical issues and warnings from all modules; the same findings list opens the `-o` report. Scans start with a compact header (target, mode, proxy, delay, report) next to a small eye; the large eye banner is shown with `-h` or when run without arguments.
+- **New logo (`utils/eye.py`)**: The third-party braille eye is replaced by an original, procedurally drawn line-art eye (lids, aperture-style iris, target crosshair) in braille dots, so it scales to any size, plus a "RED EYE" block-letter wordmark. `assets/red-eye.png` (used in the README) is rendered from the same logo.
+- Scanner progress chatter is kept out of the dashboard and appended to the `-o` report as a scanner log; `-v/--verbose` shows it live instead.
+- `requirements.txt`: `aiohttp>=3.9.0`; unused `colorama` and `urllib3` removed.
+- All result classes now live in `models/report.py` (duplicate definitions inside scanners removed).
+
 ## [1.6.0] - 2026-09-05
 
 ### Added

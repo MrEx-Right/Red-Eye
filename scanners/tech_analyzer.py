@@ -1,106 +1,82 @@
 import asyncio
 import builtwith
 import warnings
-import urllib3
 import re
 from core.base import BaseScanner
 from models.report import TechResult
 from utils.client import AsyncClient
 
-# Suppress noisy warnings from dependencies
-warnings.filterwarnings("ignore")
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# builtwith's bundled regexes trigger noisy warnings on modern Python
+warnings.filterwarnings("ignore", module="builtwith")
+
+# Known header -> technology mappings
+SERVER_SIGNATURES = {
+    "nginx": "Nginx", "apache": "Apache", "cloudflare": "Cloudflare",
+    "microsoft-iis": "IIS", "litespeed": "LiteSpeed", "openresty": "OpenResty",
+    "caddy": "Caddy", "gws": "Google Web Server"
+}
+X_POWERED = re.compile(r"([A-Za-z0-9.\-]+)")
+
 
 class TechAnalyzer(BaseScanner):
     """
-    BuiltWith + fallback header-based tech detection.
-    30s timeout, 2 retries, resilient thread execution.
+    BuiltWith fingerprinting + header-based tech detection.
+    The page is downloaded by our own async client (proxy, timeout, stealth
+    headers) and handed to BuiltWith, so the library never opens its own
+    blocking, timeout-less connection.
     """
     async def execute(self) -> TechResult:
         print(f"[*] TechAnalyzer: Consulting BuiltWith + headers for {self.target}...")
 
         discovered_tech = set()
-        loop = asyncio.get_running_loop()
-        timeout_sec = 30.0  # Controlled safely by asyncio.wait_for
-        max_retries = 2
 
-        def run_builtwith(url):
-            # FIX: Removed global socket.setdefaulttimeout() to prevent thread collision across the engine.
-            # Relying entirely on asyncio.wait_for to kill hanging executions safely.
+        async with AsyncClient(timeout=15, proxy=self.proxy) as client:
+            base_url = await client.detect_base_url(self.target)
+            if not base_url:
+                print(f"[-] TechAnalyzer: {self.target} is unreachable over HTTPS and HTTP.")
+                return TechResult(target_domain=self.target, technologies=[])
+
+            status, html, headers = await client.fetch(base_url, return_type="text", max_bytes=3_000_000)
+
+        if headers is not None:
+            # 1. BuiltWith signatures (pure regex work, run off the event loop)
             try:
-                return builtwith.builtwith(url)
-            except Exception:
-                return {}
+                results = await asyncio.wait_for(
+                    asyncio.to_thread(builtwith.builtwith, base_url, headers=headers, html=html or ""),
+                    timeout=30.0
+                )
+                for techs in (results or {}).values():
+                    discovered_tech.update(techs)
+            except Exception as e:
+                print(f"[!] TechAnalyzer: BuiltWith analysis failed: {e}")
 
-        urls = [f"https://{self.target}"]
+            # 2. Header fingerprints (catch what BuiltWith misses)
+            discovered_tech.update(self._detect_from_headers(headers))
 
-        # 1. BuiltWith (with retries)
-        for url in urls:
-            for attempt in range(max_retries + 1):
-                try:
-                    results = await asyncio.wait_for(
-                        loop.run_in_executor(None, run_builtwith, url),
-                        timeout=timeout_sec
-                    )
-                    if results:
-                        for category, techs in results.items():
-                            for tech in techs:
-                                discovered_tech.add(tech)
-                        break
-                except asyncio.TimeoutError:
-                    if attempt < max_retries:
-                        await asyncio.sleep(2)
-                        continue
-                    print(f"[!] TechAnalyzer: BuiltWith timed out for {url} (after {max_retries + 1} tries)")
-                except Exception as e:
-                    if attempt < max_retries:
-                        await asyncio.sleep(2)
-                        continue
-                    print(f"[!] TechAnalyzer: BuiltWith failed for {url}: {e}")
-
-        # 2. Fallback: extract tech from HTTP headers when BuiltWith returns empty
-        if not discovered_tech:
-            header_tech = await self._detect_from_headers()
-            discovered_tech.update(header_tech)
-
-        final_list = sorted(list(discovered_tech))
+        final_list = sorted(discovered_tech)
 
         if final_list:
             print(f"[+] TechAnalyzer: Mapped {len(final_list)} technologies.")
         else:
-            print(f"[-] TechAnalyzer: No tech detected (target unreachable or stealth).")
+            print(f"[-] TechAnalyzer: No tech detected (status {status}).")
 
         return TechResult(
             target_domain=self.target,
             technologies=final_list
         )
 
-    async def _detect_from_headers(self) -> set:
-        """Detect technology from HTTP response headers (BuiltWith fallback)."""
+    @staticmethod
+    def _detect_from_headers(headers) -> set:
+        """Detect technology from HTTP response headers."""
         tech = set()
-        client = AsyncClient(timeout=15, proxy=self.proxy)
-        urls = [f"https://{self.target}", f"http://{self.target}"]
-
-        # Known header -> technology mappings
-        server_signatures = {
-            "nginx": "Nginx", "apache": "Apache", "cloudflare": "Cloudflare",
-            "microsoft-iis": "IIS", "litespeed": "LiteSpeed", "openresty": "OpenResty",
-            "caddy": "Caddy", "gws": "Google Web Server"
-        }
-        x_powered = re.compile(r"([A-Za-z0-9.\-]+)", re.I)
-
-        for url in urls:
-            status, _, headers = await client.fetch(url, return_type="text")
-            if status != 200 or headers is None:
-                continue
-            server = (headers.get("Server") or "").lower()
-            x_pwr = (headers.get("X-Powered-By") or headers.get("x-powered-by") or "")
-            for sig, name in server_signatures.items():
-                if sig in server:
-                    tech.add(name)
-                    break
-            if x_pwr:
-                match = x_powered.search(x_pwr)
-                if match:
-                    tech.add(match.group(1).strip())
+        server = (headers.get("Server") or "").lower()
+        x_pwr = headers.get("X-Powered-By") or ""
+        for sig, name in SERVER_SIGNATURES.items():
+            if sig in server:
+                tech.add(name)
+                break
+        if x_pwr:
+            match = X_POWERED.search(x_pwr)
+            if match:
+                tech.add(match.group(1).strip())
         return tech
